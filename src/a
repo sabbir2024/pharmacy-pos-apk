@@ -1,0 +1,67 @@
+.
+├── a
+├── app
+│   ├── _layout.tsx
+│   └── (tabs)
+│       ├── due.tsx
+│       ├── index.tsx
+│       ├── inventory.tsx
+│       ├── _layout.tsx
+│       ├── README.md
+│       ├── reports.tsx
+│       └── sales.tsx
+├── components
+│   └── ui
+│       ├── customers
+│       │   ├── CustomerCard.tsx
+│       │   ├── CustomerLedger.tsx
+│       │   ├── CustomerList.tsx
+│       │   └── index.ts
+│       ├── dashboard
+│       │   ├── DataManagement.tsx
+│       │   ├── DateRangePicker.tsx
+│       │   ├── ExpiryList.tsx
+│       │   ├── index.ts
+│       │   ├── LowStockList.tsx
+│       │   ├── QuickActions.tsx
+│       │   ├── SalesChart.tsx
+│       │   ├── SalesSummary.tsx
+│       │   ├── StatCard.tsx
+│       │   ├── TopProductsChart.tsx
+│       │   └── TopSellingList.tsx
+│       ├── history
+│       │   ├── index.ts
+│       │   ├── InvoiceCard.tsx
+│       │   └── InvoiceList.tsx
+│       ├── pos
+│       │   ├── BillSummary.tsx
+│       │   ├── CartList.tsx
+│       │   ├── DueCustomerModal.tsx
+│       │   ├── index.ts
+│       │   ├── InvoiceModal.tsx
+│       │   ├── MedicineSearch.tsx
+│       │   └── PaymentModal.tsx
+│       └── stock
+│           ├── AddProductModal.tsx
+│           ├── BarcodeScanner.tsx
+│           ├── EmptyState.tsx
+│           ├── index.ts
+│           ├── ProductCard.tsx
+│           ├── ProductList.tsx
+│           ├── README.md
+│           └── SearchBar.tsx
+├── db
+│   ├── customers.ts
+│   ├── dashboard.ts
+│   ├── database.ts
+│   ├── invoices.ts
+│   ├── products.ts
+│   └── sales.ts
+├── global.css
+└── utils
+    ├── backupTemplates.ts
+    ├── excel.ts
+    ├── format.ts
+    └── pdf.ts
+
+12 directories, 53 files

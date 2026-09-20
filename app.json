@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "pharmacy-pos",
+    "name": "Pharmacy POS",
     "slug": "pharmacy-pos",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,7 +8,11 @@
     "scheme": "pharmacypos",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "infoPlist": {
+        "NSCameraUsageDescription": "ঔষধের বারকোড স্ক্যান করার জন্য ক্যামেরা প্রয়োজন।"
+      },
+      "bundleIdentifier": "com.sabbir1999.pharmacypos"
     },
     "android": {
       "adaptiveIcon": {
@@ -17,7 +21,13 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "CAMERA",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.sabbir1999.pharmacypos"
     },
     "web": {
       "output": "static",
@@ -32,7 +42,16 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      "expo-sqlite",
+      "@react-native-community/datetimepicker",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "ঔষধের বারকোড স্ক্যান করার জন্য ক্যামেরার অনুমতি দিন।"
+        }
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,
