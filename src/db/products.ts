@@ -1,4 +1,6 @@
+import { nowISO } from "@/utils/timestamp";
 import { db } from "./database";
+import { getDeviceId } from "./device";
 
 export type Product = {
     id?: number;
@@ -11,10 +13,15 @@ export type Product = {
     expiry: string;
     barcode?: string;
     pcsPerUnit: number;
+    updatedAt?: string;
+    deleted?: number;
+    deletedAt?: string | null;
+    syncStatus?: string;
+    deviceId?: string;
 };
 
 // ============================
-// Read
+// Read — only non-deleted
 // ============================
 export function getAllProducts(): Product[] {
     return db.getAllSync<Product>(
@@ -24,51 +31,45 @@ export function getAllProducts(): Product[] {
             COALESCE(cost_price, 0) as costPrice,
             COALESCE(expiry, '') as expiry,
             COALESCE(barcode, '') as barcode,
-            COALESCE(pcs_per_unit, 1) as pcsPerUnit
+            COALESCE(pcs_per_unit, 1) as pcsPerUnit,
+            updated_at as updatedAt,
+            COALESCE(deleted, 0) as deleted,
+            deleted_at as deletedAt,
+            sync_status as syncStatus,
+            device_id as deviceId
      FROM medicines
+     WHERE deleted = 0 OR deleted IS NULL
      ORDER BY id DESC`
+    );
+}
+
+// For sync — include pending
+export function getAllProductsForSync(): Product[] {
+    return db.getAllSync<Product>(
+        `SELECT * FROM medicines WHERE sync_status = 'pending' OR sync_status IS NULL`
     );
 }
 
 export function getProductById(id: number): Product | null {
     const rows = db.getAllSync<Product>(
-        `SELECT id, name, COALESCE(company, '') as company,
-            price, stock,
-            COALESCE(unit, 'pcs') as unit,
-            COALESCE(cost_price, 0) as costPrice,
-            COALESCE(expiry, '') as expiry,
-            COALESCE(barcode, '') as barcode,
-            COALESCE(pcs_per_unit, 1) as pcsPerUnit
-     FROM medicines WHERE id = ?`,
+        `SELECT * FROM medicines WHERE id = ? AND (deleted = 0 OR deleted IS NULL)`,
         [id]
     );
     return rows[0] ?? null;
 }
 
-export function searchProducts(query: string): Product[] {
-    return db.getAllSync<Product>(
-        `SELECT id, name, COALESCE(company, '') as company,
-            price, stock,
-            COALESCE(unit, 'pcs') as unit,
-            COALESCE(cost_price, 0) as costPrice,
-            COALESCE(expiry, '') as expiry,
-            COALESCE(barcode, '') as barcode,
-            COALESCE(pcs_per_unit, 1) as pcsPerUnit
-     FROM medicines
-     WHERE name LIKE ? OR company LIKE ? OR barcode LIKE ?
-     ORDER BY id DESC`,
-        [`%${query}%`, `%${query}%`, `%${query}%`]
-    );
-}
-
 // ============================
 // Create
 // ============================
-export function addProduct(p: Product): number {
+export async function addProduct(p: Product): Promise<number> {
+    const deviceId = await getDeviceId();
+    const timestamp = nowISO();
+
     const r = db.runSync(
         `INSERT INTO medicines
-     (name, company, price, stock, unit, cost_price, expiry, barcode, pcs_per_unit)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (name, company, price, stock, unit, cost_price, expiry, barcode, pcs_per_unit,
+      updated_at, sync_status, device_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
         [
             p.name,
             p.company,
@@ -79,20 +80,27 @@ export function addProduct(p: Product): number {
             p.expiry,
             p.barcode ?? "",
             p.pcsPerUnit,
+            timestamp,
+            deviceId,
         ]
     );
+
     return r.lastInsertRowId;
 }
 
 // ============================
 // Update
 // ============================
-export function updateProduct(p: Product): void {
+export async function updateProduct(p: Product): Promise<void> {
+    const deviceId = await getDeviceId();
+    const timestamp = nowISO();
+
     db.runSync(
         `UPDATE medicines
-     SET name=?, company=?, price=?, stock=?, unit=?,
-         cost_price=?, expiry=?, barcode=?, pcs_per_unit=?
-     WHERE id=?`,
+     SET name = ?, company = ?, price = ?, stock = ?, unit = ?,
+         cost_price = ?, expiry = ?, barcode = ?, pcs_per_unit = ?,
+         updated_at = ?, sync_status = 'pending', device_id = ?
+     WHERE id = ?`,
         [
             p.name,
             p.company,
@@ -103,34 +111,58 @@ export function updateProduct(p: Product): void {
             p.expiry,
             p.barcode ?? "",
             p.pcsPerUnit,
+            timestamp,
+            deviceId,
             p.id!,
         ]
     );
 }
 
 // ============================
-// Delete
+// Soft Delete
 // ============================
-export function deleteProduct(id: number): void {
-    db.runSync("DELETE FROM medicines WHERE id = ?", [id]);
+export async function deleteProduct(id: number): Promise<void> {
+    const deviceId = await getDeviceId();
+    const timestamp = nowISO();
+
+    db.runSync(
+        `UPDATE medicines
+     SET deleted = 1, deleted_at = ?, updated_at = ?,
+         sync_status = 'pending', device_id = ?
+     WHERE id = ?`,
+        [timestamp, timestamp, deviceId, id]
+    );
 }
 
 // ============================
-// 🆕 Bulk Add (Excel Import)
+// Sync: mark as synced
 // ============================
-export function bulkAddProducts(
+export function markProductsSynced(ids: number[]): void {
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => "?").join(",");
+    db.runSync(
+        `UPDATE medicines SET sync_status = 'synced' WHERE id IN (${placeholders})`,
+        ids
+    );
+}
+
+// ============================
+// Bulk Add (Excel Import)
+// ============================
+export async function bulkAddProducts(
     products: Omit<Product, "id">[]
-): { inserted: number; skipped: number } {
+): Promise<{ inserted: number; skipped: number }> {
+    const deviceId = await getDeviceId();
+    const timestamp = nowISO();
     let inserted = 0;
     let skipped = 0;
 
     db.withTransactionSync(() => {
         for (const p of products) {
             try {
-                // বারকোড থাকলে ডুপ্লিকেট চেক
                 if (p.barcode) {
                     const ex = db.getAllSync<{ c: number }>(
-                        `SELECT COUNT(*) as c FROM medicines WHERE barcode = ?`,
+                        `SELECT COUNT(*) as c FROM medicines WHERE barcode = ? AND (deleted = 0 OR deleted IS NULL)`,
                         [p.barcode]
                     )[0];
                     if (ex && ex.c > 0) {
@@ -141,8 +173,9 @@ export function bulkAddProducts(
 
                 db.runSync(
                     `INSERT INTO medicines
-           (name, company, price, stock, unit, cost_price, expiry, barcode, pcs_per_unit)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (name, company, price, stock, unit, cost_price, expiry, barcode, pcs_per_unit,
+            updated_at, sync_status, device_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
                     [
                         p.name,
                         p.company,
@@ -153,61 +186,17 @@ export function bulkAddProducts(
                         p.expiry,
                         p.barcode ?? "",
                         p.pcsPerUnit,
+                        timestamp,
+                        deviceId,
                     ]
                 );
                 inserted++;
             } catch (e) {
-                console.error("Insert product fail:", p.name, e);
+                console.error("Insert fail:", p.name, e);
                 skipped++;
             }
         }
     });
 
     return { inserted, skipped };
-}
-
-// ============================
-// 🆕 Bulk Stock Update (Low Stock Import)
-// ============================
-export function bulkUpdateStock(
-    updates: { id: number; stock: number }[]
-): { updated: number; skipped: number } {
-    let updated = 0;
-    let skipped = 0;
-
-    db.withTransactionSync(() => {
-        for (const u of updates) {
-            try {
-                const r = db.runSync(
-                    `UPDATE medicines SET stock = ? WHERE id = ?`,
-                    [u.stock, u.id]
-                );
-                if (r.changes > 0) updated++;
-                else skipped++;
-            } catch (e) {
-                console.error("Update stock fail:", u.id, e);
-                skipped++;
-            }
-        }
-    });
-
-    return { updated, skipped };
-}
-
-// ============================
-// Bulk Delete by IDs
-// ============================
-export function bulkDeleteProducts(ids: number[]): number {
-    let deleted = 0;
-    db.withTransactionSync(() => {
-        for (const id of ids) {
-            try {
-                const r = db.runSync("DELETE FROM medicines WHERE id = ?", [id]);
-                if (r.changes > 0) deleted++;
-            } catch (e) {
-                console.error("Delete fail:", id, e);
-            }
-        }
-    });
-    return deleted;
 }

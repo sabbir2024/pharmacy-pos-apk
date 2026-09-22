@@ -1,7 +1,10 @@
+import { useSyncStatus } from "@/hooks/useSyncStatus";
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 
 export default function TabLayout() {
+    const { isLoggedIn } = useSyncStatus();
+
     return (
         <Tabs
             screenOptions={{
@@ -67,6 +70,25 @@ export default function TabLayout() {
                     title: "রিপোর্ট",
                     tabBarIcon: ({ color, size }) => (
                         <Ionicons name="bar-chart-outline" size={size} color={color} />
+                    ),
+                }}
+            />
+            <Tabs.Screen
+                name="settings"
+                options={{
+                    title: "সেটিংস",
+                    // 🆕 লাল ব্যাজ — Login না করলে
+                    tabBarBadge: !isLoggedIn ? "" : undefined,
+                    tabBarBadgeStyle: {
+                        backgroundColor: "#dc2626",
+                        minWidth: 8,
+                        maxWidth: 8,
+                        maxHeight: 8,
+                        borderRadius: 4,
+                        marginTop: -2,
+                    },
+                    tabBarIcon: ({ color, size }) => (
+                        <Ionicons name="settings-outline" size={size} color={color} />
                     ),
                 }}
             />

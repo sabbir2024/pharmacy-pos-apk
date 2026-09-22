@@ -12,9 +12,11 @@ import {
 } from "@/components/ui/dashboard";
 import {
     getDashboardStats,
+    getDuePaymentStats,
     getExpiringItems,
     getLowStockItems,
     getRangeSummary,
+    getRecentDuePayments,
     getSalesByDateRange,
     getStockStats,
     getTopSelling,
@@ -24,12 +26,14 @@ import {
     type DashboardStats,
     type DateRange,
     type DayWiseSales,
+    type DuePaymentItem,
+    type DuePaymentStats,
     type RangeSummary,
     type StockItem,
     type StockStats,
     type TopSelling,
 } from "@/db/dashboard";
-import { formatTk } from "@/utils/format";
+import { formatDateTime, formatTk } from "@/utils/format";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useState } from "react";
@@ -52,6 +56,8 @@ export default function Dashboard() {
         monthBills: 0,
         totalDue: 0,
         totalProfitToday: 0,
+        todayCollected: 0,
+        todayPayments: 0,
     });
 
     const [stock, setStock] = useState<StockStats>({
@@ -68,7 +74,7 @@ export default function Dashboard() {
     const [expiring, setExpiring] = useState<StockItem[]>([]);
     const [topSelling, setTopSelling] = useState<TopSelling[]>([]);
 
-    // 🆕 Date range state
+    // Date range
     const [range, setRange] = useState<DateRange>({
         from: monthStartStr(),
         to: todayStr(),
@@ -80,8 +86,20 @@ export default function Dashboard() {
         totalDue: 0,
         totalProfit: 0,
         avgBill: 0,
+        dueCollected: 0,
     });
     const [topProducts, setTopProducts] = useState<TopSelling[]>([]);
+
+    // 🆕 Due Payment
+    const [dueStats, setDueStats] = useState<DuePaymentStats>({
+        todayCollected: 0,
+        todayPayments: 0,
+        monthCollected: 0,
+        monthPayments: 0,
+        totalDueCustomers: 0,
+        totalDueAmount: 0,
+    });
+    const [recentPayments, setRecentPayments] = useState<DuePaymentItem[]>([]);
 
     const [refreshing, setRefreshing] = useState(false);
 
@@ -93,10 +111,13 @@ export default function Dashboard() {
             setExpiring(getExpiringItems());
             setTopSelling(getTopSelling());
 
-            // Range-specific data
             setChartData(getSalesByDateRange(range));
             setRangeSummary(getRangeSummary(range));
             setTopProducts(getTopSellingByRange(range, 5));
+
+            // 🆕 Due payment
+            setDueStats(getDuePaymentStats());
+            setRecentPayments(getRecentDuePayments(5));
         } catch (e) {
             console.error("Dashboard load error:", e);
         }
@@ -131,7 +152,7 @@ export default function Dashboard() {
                 <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
             }
         >
-            {/* ১. আজকের বিক্রয় — হিরো কার্ড */}
+            {/* ১. আজকের বিক্রয় — Hero */}
             <View style={styles.heroCard}>
                 <View style={{ flex: 1 }}>
                     <Text style={styles.heroLabel}>আজকের বিক্রয়</Text>
@@ -159,7 +180,7 @@ export default function Dashboard() {
                 <QuickActions />
             </View>
 
-            {/* ৩. 🆕 বিক্রয় রিপোর্ট — চার্ট সহ */}
+            {/* ৩. বিক্রয় রিপোর্ট — চার্ট */}
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>বিক্রয় রিপোর্ট</Text>
 
@@ -179,7 +200,85 @@ export default function Dashboard() {
                 </View>
             </View>
 
-            {/* ৪. এই মাসের সামারি */}
+            {/* ৪. 🆕 বাকি কালেকশন */}
+            <View style={styles.section}>
+                <Text style={styles.sectionTitle}>বাকি কালেকশন</Text>
+
+                <View style={styles.grid}>
+                    <View style={{ flex: 1 }}>
+                        <StatCard
+                            label="আজকের কালেকশন"
+                            value={formatTk(dueStats.todayCollected)}
+                            icon="cash-outline"
+                            color="#16a34a"
+                            bgColor="#dcfce7"
+                            sub={`${dueStats.todayPayments}টি পেমেন্ট`}
+                        />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <StatCard
+                            label="এই মাসের কালেকশন"
+                            value={formatTk(dueStats.monthCollected)}
+                            icon="calendar-outline"
+                            color="#0d9488"
+                            bgColor="#f0fdfa"
+                            sub={`${dueStats.monthPayments}টি পেমেন্ট`}
+                        />
+                    </View>
+                </View>
+
+                <View style={[styles.grid, { marginTop: 10 }]}>
+                    <View style={{ flex: 1 }}>
+                        <StatCard
+                            label="বাকি কাস্টমার"
+                            value={`${dueStats.totalDueCustomers}`}
+                            icon="people-outline"
+                            color="#d97706"
+                            bgColor="#fef3c7"
+                            sub={`মোট ${formatTk(dueStats.totalDueAmount)}`}
+                        />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <TouchableOpacity
+                            style={styles.dueBtn}
+                            onPress={() => router.push("/(tabs)/due")}
+                        >
+                            <Ionicons name="arrow-forward-circle" size={20} color="#fff" />
+                            <Text style={styles.dueBtnText}>সব কাস্টমার</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                {/* সাম্প্রতিক পেমেন্ট */}
+                {recentPayments.length > 0 && (
+                    <View style={[styles.listBox, { marginTop: 12 }]}>
+                        {recentPayments.map((p, idx) => (
+                            <View
+                                key={p.id}
+                                style={[
+                                    styles.paymentRow,
+                                    idx !== recentPayments.length - 1 && styles.paymentBorder,
+                                ]}
+                            >
+                                <View style={styles.payIcon}>
+                                    <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.payName}>
+                                        {p.customerName || "কাস্টমার"}
+                                    </Text>
+                                    <Text style={styles.payDate}>
+                                        {formatDateTime(p.createdAt)}
+                                    </Text>
+                                </View>
+                                <Text style={styles.payAmount}>{formatTk(p.amount)}</Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
+            </View>
+
+            {/* ৫. এই মাসের সামারি */}
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>এই মাসের সামারি</Text>
                 <View style={styles.grid}>
@@ -206,7 +305,7 @@ export default function Dashboard() {
                 </View>
             </View>
 
-            {/* ৫. স্টক সামারি */}
+            {/* ৬. স্টক সামারি */}
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>স্টক সামারি</Text>
 
@@ -227,7 +326,7 @@ export default function Dashboard() {
                             icon="pricetags-outline"
                             color="#8b5cf6"
                             bgColor="#ede9fe"
-                            sub={`লাভের সম্ভাবনা ${formatTk(profit)}`}
+                            sub={`লাভ ${formatTk(profit)}`}
                         />
                     </View>
                 </View>
@@ -275,7 +374,7 @@ export default function Dashboard() {
                 </View>
             </View>
 
-            {/* ৬. কম স্টক */}
+            {/* ৭. কম স্টক */}
             <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                     <Text style={styles.sectionTitle}>কম স্টক</Text>
@@ -292,7 +391,7 @@ export default function Dashboard() {
                 </View>
             </View>
 
-            {/* ৭. এক্সপায়ারি */}
+            {/* ৮. এক্সপায়ারি */}
             <View style={styles.section}>
                 <View style={styles.sectionHeader}>
                     <Text style={styles.sectionTitle}>এক্সপায়ারি অ্যালার্ট</Text>
@@ -309,7 +408,7 @@ export default function Dashboard() {
                 </View>
             </View>
 
-            {/* ৮. টপ সেলিং (এই মাসে) */}
+            {/* ৯. টপ সেলিং */}
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>টপ সেলিং (এই মাসে)</Text>
                 <View style={styles.listBox}>
@@ -317,9 +416,20 @@ export default function Dashboard() {
                 </View>
             </View>
 
-            {/* ৯. ডেটা ম্যানেজমেন্ট */}
+            {/* ১০. ডেটা ম্যানেজমেন্ট */}
             <View style={styles.section}>
                 <DataManagement />
+            </View>
+            <View style={{ alignItems: "center", gap: 8 }}>
+                <View style={styles.heroIcon}>
+                    <Ionicons name="cash-outline" size={40} color="#0d9488" />
+                </View>
+                <TouchableOpacity
+                    style={styles.settingsBtn}
+                    onPress={() => router.push("/(tabs)/settings")}
+                >
+                    <Ionicons name="settings-outline" size={18} color="#0d9488" />
+                </TouchableOpacity>
             </View>
         </ScrollView>
     );
@@ -392,4 +502,49 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: "#f1f5f9",
     },
+
+    // 🆕 Due styles
+    dueBtn: {
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        backgroundColor: "#0d9488",
+        borderRadius: 12,
+        paddingVertical: 14,
+    },
+    dueBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+
+    paymentRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 10,
+        gap: 10,
+    },
+    paymentBorder: {
+        borderBottomWidth: 1,
+        borderBottomColor: "#f3f4f6",
+    },
+    payIcon: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: "#dcfce7",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    settingsBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: "#fff",
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 1,
+        borderColor: "#ccfbf1",
+    },
+    payName: { fontSize: 13, fontWeight: "700", color: "#111827" },
+    payDate: { fontSize: 11, color: "#9ca3af", marginTop: 2 },
+    payAmount: { fontSize: 14, fontWeight: "800", color: "#16a34a" },
 });

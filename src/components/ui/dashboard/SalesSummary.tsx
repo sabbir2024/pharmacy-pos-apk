@@ -31,11 +31,11 @@ export default function SalesSummary({ summary }: Props) {
             bg: "#dcfce7",
         },
         {
-            label: "মোট বাকি",
-            value: formatTk(summary.totalDue),
-            icon: "alert-circle-outline",
-            color: "#d97706",
-            bg: "#fef3c7",
+            label: "বাকি আদায়",
+            value: formatTk(summary.dueCollected),
+            icon: "checkmark-circle-outline",
+            color: "#0d9488",
+            bg: "#f0fdfa",
         },
     ];
 

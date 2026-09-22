@@ -1,0 +1,316 @@
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import React, { useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    StyleSheet,
+    Switch,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
+
+import { fullSync, logout } from "@/db/sync";
+import { useSyncStatus } from "@/hooks/useSyncStatus";
+import { formatDateTime } from "@/utils/format";
+
+const AUTO_SYNC_KEY = "@pharmacy_auto_sync";
+
+export default function SyncSection() {
+    const router = useRouter();
+    const { isLoggedIn, user, lastSyncAt, refresh, loading } = useSyncStatus();
+
+    const [syncing, setSyncing] = useState(false);
+    const [autoSync, setAutoSync] = useState(true);
+
+    // Auto sync preference load
+    React.useEffect(() => {
+        AsyncStorage.getItem(AUTO_SYNC_KEY).then((val) => {
+            if (val !== null) setAutoSync(val === "true");
+        });
+    }, []);
+
+    const toggleAutoSync = async (value: boolean) => {
+        setAutoSync(value);
+        await AsyncStorage.setItem(AUTO_SYNC_KEY, value ? "true" : "false");
+    };
+
+    const handleSync = async () => {
+        if (!isLoggedIn) {
+            Alert.alert(
+                "লগইন প্রয়োজন",
+                "ক্লাউড সিঙ্ক করতে আগে লগইন করুন।",
+                [
+                    { text: "বাতিল", style: "cancel" },
+                    { text: "লগইন", onPress: () => router.push("/login") },
+                ]
+            );
+            return;
+        }
+
+        try {
+            setSyncing(true);
+            const result = await fullSync();
+
+            if (result.success) {
+                await refresh();
+                const pushed = result.push?.synced;
+                Alert.alert(
+                    "✅ সিঙ্ক সফল",
+                    pushed
+                        ? `পাঠানো: ঔষধ ${pushed.medicines}, বিক্রয় ${pushed.sales}, কাস্টমার ${pushed.customers}`
+                        : "সব ডেটা সিঙ্ক হয়েছে"
+                );
+            } else {
+                Alert.alert(
+                    "❌ সিঙ্ক ব্যর্থ",
+                    result.error || "ইন্টারনেট সংযোগ চেক করুন"
+                );
+            }
+        } catch (e: any) {
+            Alert.alert("ত্রুটি", e?.message || "সিঙ্ক করা যায়নি");
+        } finally {
+            setSyncing(false);
+        }
+    };
+
+    const handleLogout = () => {
+        Alert.alert(
+            "লগআউট",
+            "লগআউট করলে ক্লাউড সিঙ্ক বন্ধ হবে। ডেটা লোকালি থাকবে।",
+            [
+                { text: "বাতিল", style: "cancel" },
+                {
+                    text: "লগআউট",
+                    style: "destructive",
+                    onPress: async () => {
+                        await logout();
+                        await refresh();
+                    },
+                },
+            ]
+        );
+    };
+
+    const formatLastSync = (iso: string | null): string => {
+        if (!iso) return "কখনো সিঙ্ক হয়নি";
+        try {
+            return formatDateTime(iso);
+        } catch {
+            return iso;
+        }
+    };
+
+    if (loading) {
+        return (
+            <View style={styles.loadingBox}>
+                <ActivityIndicator color="#0d9488" />
+            </View>
+        );
+    }
+
+    return (
+        <View style={styles.section}>
+            <Text style={styles.sectionTitle}>☁️ ক্লাউড সিঙ্ক</Text>
+
+            {/* Status Card */}
+            <View
+                style={[
+                    styles.statusCard,
+                    {
+                        backgroundColor: isLoggedIn ? "#f0fdf4" : "#fef3c7",
+                        borderColor: isLoggedIn ? "#bbf7d0" : "#fde68a",
+                    },
+                ]}
+            >
+                <View
+                    style={[
+                        styles.statusIcon,
+                        {
+                            backgroundColor: isLoggedIn ? "#dcfce7" : "#fef3c7",
+                        },
+                    ]}
+                >
+                    <Ionicons
+                        name={isLoggedIn ? "cloud-done" : "cloud-offline"}
+                        size={22}
+                        color={isLoggedIn ? "#16a34a" : "#d97706"}
+                    />
+                </View>
+                <View style={{ flex: 1 }}>
+                    <Text
+                        style={[
+                            styles.statusTitle,
+                            { color: isLoggedIn ? "#166534" : "#92400e" },
+                        ]}
+                    >
+                        {isLoggedIn ? "সংযুক্ত" : "লগইন করা নেই"}
+                    </Text>
+                    <Text style={styles.statusSub}>
+                        {isLoggedIn && user
+                            ? `${user.email}`
+                            : "সিঙ্ক করতে লগইন করুন"}
+                    </Text>
+                    {isLoggedIn && (
+                        <Text style={styles.lastSync}>
+                            শেষ সিঙ্ক: {formatLastSync(lastSyncAt)}
+                        </Text>
+                    )}
+                </View>
+            </View>
+
+            {/* Login বাটন */}
+            {!isLoggedIn && (
+                <TouchableOpacity
+                    style={styles.loginBtn}
+                    onPress={() => router.push("/login")}
+                >
+                    <Ionicons name="log-in-outline" size={20} color="#fff" />
+                    <Text style={styles.loginBtnText}>লগইন / রেজিস্টার</Text>
+                </TouchableOpacity>
+            )}
+
+            {/* Sync Now */}
+            {isLoggedIn && (
+                <>
+                    <TouchableOpacity
+                        style={[styles.syncBtn, syncing && { opacity: 0.6 }]}
+                        onPress={handleSync}
+                        disabled={syncing}
+                    >
+                        {syncing ? (
+                            <ActivityIndicator color="#fff" />
+                        ) : (
+                            <>
+                                <Ionicons name="sync-outline" size={20} color="#fff" />
+                                <Text style={styles.syncBtnText}>এখনই সিঙ্ক করুন</Text>
+                            </>
+                        )}
+                    </TouchableOpacity>
+
+                    {/* Auto Sync Toggle */}
+                    <View style={styles.autoRow}>
+                        <View style={styles.autoIcon}>
+                            <Ionicons name="time-outline" size={18} color="#0d9488" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.autoTitle}>অটো সিঙ্ক</Text>
+                            <Text style={styles.autoSub}>
+                                প্রতি ৫ মিনিটে স্বয়ংক্রিয় সিঙ্ক
+                            </Text>
+                        </View>
+                        <Switch
+                            value={autoSync}
+                            onValueChange={toggleAutoSync}
+                            trackColor={{ false: "#e5e7eb", true: "#0d9488" }}
+                            thumbColor="#fff"
+                        />
+                    </View>
+
+                    {/* Logout */}
+                    <TouchableOpacity
+                        style={styles.logoutBtn}
+                        onPress={handleLogout}
+                    >
+                        <Ionicons name="log-out-outline" size={18} color="#dc2626" />
+                        <Text style={styles.logoutText}>লগআউট</Text>
+                    </TouchableOpacity>
+                </>
+            )}
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    section: { marginBottom: 18 },
+    sectionTitle: {
+        fontSize: 13,
+        fontWeight: "800",
+        color: "#374151",
+        marginBottom: 8,
+        textTransform: "uppercase",
+        letterSpacing: 0.5,
+    },
+
+    loadingBox: { padding: 30, alignItems: "center" },
+
+    statusCard: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        padding: 14,
+        borderRadius: 12,
+        borderWidth: 1,
+        marginBottom: 10,
+    },
+    statusIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    statusTitle: { fontSize: 14, fontWeight: "800" },
+    statusSub: { fontSize: 11, color: "#6b7280", marginTop: 2 },
+    lastSync: { fontSize: 10, color: "#9ca3af", marginTop: 2 },
+
+    loginBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        backgroundColor: "#0d9488",
+        paddingVertical: 14,
+        borderRadius: 12,
+    },
+    loginBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+
+    syncBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 8,
+        backgroundColor: "#3b82f6",
+        paddingVertical: 14,
+        borderRadius: 12,
+        marginBottom: 10,
+    },
+    syncBtnText: { color: "#fff", fontWeight: "800", fontSize: 14 },
+
+    autoRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        backgroundColor: "#fff",
+        padding: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: "#f1f5f9",
+        marginBottom: 8,
+    },
+    autoIcon: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: "#f0fdfa",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    autoTitle: { fontSize: 13, fontWeight: "700", color: "#111827" },
+    autoSub: { fontSize: 11, color: "#6b7280", marginTop: 2 },
+
+    logoutBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        paddingVertical: 12,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: "#fecaca",
+        backgroundColor: "#fff",
+    },
+    logoutText: { color: "#dc2626", fontWeight: "700", fontSize: 13 },
+});

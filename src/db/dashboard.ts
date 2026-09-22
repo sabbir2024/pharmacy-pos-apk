@@ -10,6 +10,8 @@ export type DashboardStats = {
     monthBills: number;
     totalDue: number;
     totalProfitToday: number;
+    todayCollected: number;
+    todayPayments: number;
 };
 
 export function getDashboardStats(): DashboardStats {
@@ -45,6 +47,13 @@ export function getDashboardStats(): DashboardStats {
         [todayStr]
     )[0];
 
+    const collectedRow = db.getAllSync<{ total: number; count: number }>(
+        `SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count
+     FROM due_payments
+     WHERE DATE(created_at) = DATE(?)`,
+        [todayStr]
+    )[0];
+
     return {
         todaySales: todayRow?.total ?? 0,
         todayBills: todayRow?.count ?? 0,
@@ -52,6 +61,8 @@ export function getDashboardStats(): DashboardStats {
         monthBills: monthRow?.count ?? 0,
         totalDue: dueRow?.total ?? 0,
         totalProfitToday: profitRow?.total ?? 0,
+        todayCollected: collectedRow?.total ?? 0,
+        todayPayments: collectedRow?.count ?? 0,
     };
 }
 
@@ -219,11 +230,11 @@ export function getRecentSales(): RecentSale[] {
 }
 
 // ============================
-// 📊 Date Range Sales
+// 📊 Date Range
 // ============================
 export type DateRange = {
-    from: string; // YYYY-MM-DD
-    to: string;   // YYYY-MM-DD
+    from: string;
+    to: string;
 };
 
 export type DayWiseSales = {
@@ -256,6 +267,7 @@ export type RangeSummary = {
     totalDue: number;
     totalProfit: number;
     avgBill: number;
+    dueCollected: number;
 };
 
 export function getRangeSummary(range: DateRange): RangeSummary {
@@ -286,6 +298,14 @@ export function getRangeSummary(range: DateRange): RangeSummary {
         [range.from, range.to]
     )[0];
 
+    const dueCollected = db.getAllSync<{ total: number }>(
+        `SELECT COALESCE(SUM(amount), 0) as total
+     FROM due_payments
+     WHERE DATE(created_at) >= DATE(?)
+       AND DATE(created_at) <= DATE(?)`,
+        [range.from, range.to]
+    )[0];
+
     const totalSales = sales?.total ?? 0;
     const totalBills = sales?.count ?? 0;
 
@@ -295,6 +315,7 @@ export function getRangeSummary(range: DateRange): RangeSummary {
         totalDue: sales?.due ?? 0,
         totalProfit: profit?.total ?? 0,
         avgBill: totalBills > 0 ? totalSales / totalBills : 0,
+        dueCollected: dueCollected?.total ?? 0,
     };
 }
 
@@ -339,6 +360,102 @@ export function getPaymentBreakdown(range: DateRange): PaymentBreakdown[] {
      ORDER BY total DESC`,
         [range.from, range.to]
     );
+}
+
+// ============================
+// 🆕 Due Payment Stats
+// ============================
+export type DuePaymentStats = {
+    todayCollected: number;
+    todayPayments: number;
+    monthCollected: number;
+    monthPayments: number;
+    totalDueCustomers: number;
+    totalDueAmount: number;
+};
+
+export function getDuePaymentStats(): DuePaymentStats {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    const monthStr = monthStart.toISOString().slice(0, 10);
+
+    const today = db.getAllSync<{ total: number; count: number }>(
+        `SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count
+     FROM due_payments
+     WHERE DATE(created_at) = DATE(?)`,
+        [todayStr]
+    )[0];
+
+    const month = db.getAllSync<{ total: number; count: number }>(
+        `SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as count
+     FROM due_payments
+     WHERE DATE(created_at) >= DATE(?)`,
+        [monthStr]
+    )[0];
+
+    const dueInfo = db.getAllSync<{
+        customers: number;
+        total_due: number;
+    }>(
+        `SELECT
+       COUNT(*) as customers,
+       COALESCE(SUM(total_due), 0) as total_due
+     FROM due_customers
+     WHERE total_due > 0`
+    )[0];
+
+    return {
+        todayCollected: today?.total ?? 0,
+        todayPayments: today?.count ?? 0,
+        monthCollected: month?.total ?? 0,
+        monthPayments: month?.count ?? 0,
+        totalDueCustomers: dueInfo?.customers ?? 0,
+        totalDueAmount: dueInfo?.total_due ?? 0,
+    };
+}
+
+// ============================
+// 🆕 সাম্প্রতিক Due পেমেন্ট
+// ============================
+export type DuePaymentItem = {
+    id: number;
+    customerId: number;
+    customerName: string;
+    amount: number;
+    note: string;
+    createdAt: string;
+};
+
+export function getRecentDuePayments(limit = 5): DuePaymentItem[] {
+    return db.getAllSync<DuePaymentItem>(
+        `SELECT
+       p.id,
+       p.customer_id as customerId,
+       c.name as customerName,
+       p.amount,
+       COALESCE(p.note, '') as note,
+       p.created_at as createdAt
+     FROM due_payments p
+     LEFT JOIN due_customers c ON c.id = p.customer_id
+     ORDER BY p.id DESC
+     LIMIT ?`,
+        [limit]
+    );
+}
+
+// ============================
+// 🆕 Range এর Due কালেকশন
+// ============================
+export function getDueCollectedByRange(range: DateRange): number {
+    const row = db.getAllSync<{ total: number }>(
+        `SELECT COALESCE(SUM(amount), 0) as total
+     FROM due_payments
+     WHERE DATE(created_at) >= DATE(?)
+       AND DATE(created_at) <= DATE(?)`,
+        [range.from, range.to]
+    )[0];
+    return row?.total ?? 0;
 }
 
 // ============================

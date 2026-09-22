@@ -36,7 +36,7 @@ export default function Sales() {
     const [invoiceOpen, setInvoiceOpen] = useState(false);
     const [lastSaleId, setLastSaleId] = useState<number | null>(null);
 
-    // Due flow স্টেট
+    // Due flow
     const [dueModalOpen, setDueModalOpen] = useState(false);
     const [pendingPayment, setPendingPayment] = useState<{
         paid: number;
@@ -65,7 +65,9 @@ export default function Sales() {
     const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
     const total = subtotal - discount + vat;
 
+    // ============================
     // কার্টে যোগ
+    // ============================
     const addToCart = (p: Product) => {
         if (p.stock <= 0) {
             Alert.alert("স্টক নেই", `${p.name} এর স্টক শেষ`);
@@ -97,11 +99,20 @@ export default function Sales() {
     };
 
     const changeQty = (id: number, delta: number) => {
+        const product = products.find((p) => p.id === id);
+        if (!product) return;
+
         setCart((prev) =>
             prev
-                .map((i) =>
-                    i.medicineId === id ? { ...i, qty: i.qty + delta } : i
-                )
+                .map((i) => {
+                    if (i.medicineId !== id) return i;
+                    const newQty = i.qty + delta;
+                    if (newQty > product.stock) {
+                        Alert.alert("স্টক সীমিত", `মাত্র ${product.stock} আছে`);
+                        return i;
+                    }
+                    return { ...i, qty: newQty };
+                })
                 .filter((i) => i.qty > 0)
         );
     };
@@ -136,7 +147,9 @@ export default function Sales() {
         addToCart(product);
     };
 
-    // বিক্রয়ের পর সব রিসেট
+    // ============================
+    // বিক্রয়ের পর রিসেট
+    // ============================
     const resetAfterSale = () => {
         setPaymentOpen(false);
         setDueModalOpen(false);
@@ -147,18 +160,25 @@ export default function Sales() {
         setProducts(getAllProducts());
     };
 
-    // Payment Modal থেকে কনফার্ম
-    const handleConfirmPayment = (paid: number, method: PaymentMethod) => {
+    // ============================
+    // ✅ Payment Confirm (async)
+    // ============================
+    const handleConfirmPayment = async (
+        paid: number,
+        method: PaymentMethod
+    ) => {
         if (paid >= total) {
-            // সম্পূর্ণ পেমেন্ট — সরাসরি সেভ
+            // সম্পূর্ণ পেমেন্ট
             try {
-                const saleId = saveSale({
+                const saleId = await saveSale({
                     items: cart,
                     discount,
                     vat,
                     paid,
                     paymentMethod: method,
                 });
+
+                setProducts(getAllProducts());
                 setLastSaleId(saleId);
                 resetAfterSale();
                 setInvoiceOpen(true);
@@ -167,18 +187,20 @@ export default function Sales() {
                 Alert.alert("ত্রুটি", "বিল সেভ করা যায়নি");
             }
         } else {
-            // আংশিক পেমেন্ট — Due কাস্টমার লাগবে
+            // আংশিক পেমেন্ট → Due customer
             setPendingPayment({ paid, method });
             setPaymentOpen(false);
             setDueModalOpen(true);
         }
     };
 
-    // Due কাস্টমার সিলেক্ট হলে
-    const handleDueCustomerSelected = (customerId: number) => {
+    // ============================
+    // ✅ Due Customer Selected (async)
+    // ============================
+    const handleDueCustomerSelected = async (customerId: number) => {
         if (!pendingPayment) return;
         try {
-            const saleId = saveSale({
+            const saleId = await saveSale({
                 items: cart,
                 discount,
                 vat,
@@ -186,6 +208,8 @@ export default function Sales() {
                 paymentMethod: pendingPayment.method,
                 customerId,
             });
+
+            setProducts(getAllProducts());
             setLastSaleId(saleId);
             resetAfterSale();
             setInvoiceOpen(true);
@@ -203,7 +227,7 @@ export default function Sales() {
             behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
             <View style={styles.container}>
-                {/* সার্চ + স্ক্যান বাটন */}
+                {/* সার্চ + স্ক্যান */}
                 <MedicineSearch
                     query={query}
                     onChangeQuery={setQuery}
@@ -254,7 +278,7 @@ export default function Sales() {
                     </TouchableOpacity>
                 </View>
 
-                {/* পেমেন্ট মডাল */}
+                {/* Modals */}
                 <PaymentModal
                     visible={paymentOpen}
                     total={total}
@@ -262,7 +286,6 @@ export default function Sales() {
                     onConfirm={handleConfirmPayment}
                 />
 
-                {/* Due কাস্টমার মডাল */}
                 <DueCustomerModal
                     visible={dueModalOpen}
                     dueAmount={dueAmount}
@@ -274,7 +297,6 @@ export default function Sales() {
                     onConfirm={handleDueCustomerSelected}
                 />
 
-                {/* ইনভয়েস মডাল — বিল সেভের পর */}
                 <InvoiceModal
                     visible={invoiceOpen}
                     saleId={lastSaleId}
@@ -284,7 +306,6 @@ export default function Sales() {
                     }}
                 />
 
-                {/* বারকোড স্ক্যানার */}
                 <BarcodeScanner
                     visible={scannerOpen}
                     onClose={() => setScannerOpen(false)}

@@ -4,7 +4,7 @@ export const db = SQLite.openDatabaseSync("pharmacy.db");
 
 export function initDatabase() {
   // ============================
-  // ১. সব টেবিল তৈরি (প্রথমবার)
+  // টেবিল তৈরি
   // ============================
   db.execSync(`
     CREATE TABLE IF NOT EXISTS medicines (
@@ -18,6 +18,11 @@ export function initDatabase() {
       expiry TEXT,
       barcode TEXT,
       pcs_per_unit INTEGER DEFAULT 1,
+      updated_at TEXT,
+      deleted INTEGER DEFAULT 0,
+      deleted_at TEXT,
+      sync_status TEXT DEFAULT 'pending',
+      device_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -32,6 +37,11 @@ export function initDatabase() {
       customer_id INTEGER,
       due_amount REAL DEFAULT 0,
       is_due INTEGER DEFAULT 0,
+      updated_at TEXT,
+      deleted INTEGER DEFAULT 0,
+      deleted_at TEXT,
+      sync_status TEXT DEFAULT 'pending',
+      device_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -51,6 +61,11 @@ export function initDatabase() {
       phone TEXT,
       address TEXT,
       total_due REAL DEFAULT 0,
+      updated_at TEXT,
+      deleted INTEGER DEFAULT 0,
+      deleted_at TEXT,
+      sync_status TEXT DEFAULT 'pending',
+      device_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -59,77 +74,146 @@ export function initDatabase() {
       customer_id INTEGER NOT NULL,
       amount REAL NOT NULL,
       note TEXT,
+      updated_at TEXT,
+      deleted INTEGER DEFAULT 0,
+      deleted_at TEXT,
+      sync_status TEXT DEFAULT 'pending',
+      device_id TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
 
   // ============================
-  // ২. medicines টেবিলের মাইগ্রেশন
+  // Migration: medicines
   // ============================
-  const medCols = db.getAllSync<{ name: string }>(
-    "PRAGMA table_info(medicines)"
-  );
+  const medCols = db.getAllSync<{ name: string }>("PRAGMA table_info(medicines)");
   const medNames = medCols.map((c) => c.name);
 
-  if (!medNames.includes("unit")) {
+  if (!medNames.includes("unit"))
     db.execSync("ALTER TABLE medicines ADD COLUMN unit TEXT DEFAULT 'pcs'");
-  }
-  if (!medNames.includes("cost_price")) {
+  if (!medNames.includes("cost_price"))
     db.execSync("ALTER TABLE medicines ADD COLUMN cost_price REAL DEFAULT 0");
-  }
-  if (!medNames.includes("pcs_per_unit")) {
+  if (!medNames.includes("pcs_per_unit"))
+    db.execSync("ALTER TABLE medicines ADD COLUMN pcs_per_unit INTEGER DEFAULT 1");
+  if (!medNames.includes("updated_at")) {
+    db.execSync("ALTER TABLE medicines ADD COLUMN updated_at TEXT");
     db.execSync(
-      "ALTER TABLE medicines ADD COLUMN pcs_per_unit INTEGER DEFAULT 1"
+      "UPDATE medicines SET updated_at = datetime('now') WHERE updated_at IS NULL"
     );
   }
+  if (!medNames.includes("deleted"))
+    db.execSync("ALTER TABLE medicines ADD COLUMN deleted INTEGER DEFAULT 0");
+  if (!medNames.includes("deleted_at"))
+    db.execSync("ALTER TABLE medicines ADD COLUMN deleted_at TEXT");
+  if (!medNames.includes("sync_status")) {
+    db.execSync("ALTER TABLE medicines ADD COLUMN sync_status TEXT DEFAULT 'pending'");
+    db.execSync("UPDATE medicines SET sync_status = 'pending' WHERE sync_status IS NULL");
+  }
+  if (!medNames.includes("device_id"))
+    db.execSync("ALTER TABLE medicines ADD COLUMN device_id TEXT");
 
   // ============================
-  // ৩. sales টেবিলের মাইগ্রেশন (due সাপোর্ট)
+  // Migration: sales
   // ============================
-  const salesCols = db.getAllSync<{ name: string }>(
-    "PRAGMA table_info(sales)"
-  );
+  const salesCols = db.getAllSync<{ name: string }>("PRAGMA table_info(sales)");
   const salesNames = salesCols.map((c) => c.name);
 
-  if (!salesNames.includes("customer_id")) {
+  if (!salesNames.includes("customer_id"))
     db.execSync("ALTER TABLE sales ADD COLUMN customer_id INTEGER");
-  }
-  if (!salesNames.includes("due_amount")) {
+  if (!salesNames.includes("due_amount"))
     db.execSync("ALTER TABLE sales ADD COLUMN due_amount REAL DEFAULT 0");
-  }
-  if (!salesNames.includes("is_due")) {
+  if (!salesNames.includes("is_due"))
     db.execSync("ALTER TABLE sales ADD COLUMN is_due INTEGER DEFAULT 0");
-  }
-  if (!salesNames.includes("discount")) {
+  if (!salesNames.includes("discount"))
     db.execSync("ALTER TABLE sales ADD COLUMN discount REAL DEFAULT 0");
-  }
-  if (!salesNames.includes("vat")) {
+  if (!salesNames.includes("vat"))
     db.execSync("ALTER TABLE sales ADD COLUMN vat REAL DEFAULT 0");
-  }
-  if (!salesNames.includes("change")) {
+  if (!salesNames.includes("change"))
     db.execSync("ALTER TABLE sales ADD COLUMN change REAL DEFAULT 0");
-  }
-  if (!salesNames.includes("payment_method")) {
+  if (!salesNames.includes("payment_method"))
+    db.execSync("ALTER TABLE sales ADD COLUMN payment_method TEXT DEFAULT 'cash'");
+  if (!salesNames.includes("updated_at")) {
+    db.execSync("ALTER TABLE sales ADD COLUMN updated_at TEXT");
     db.execSync(
-      "ALTER TABLE sales ADD COLUMN payment_method TEXT DEFAULT 'cash'"
+      "UPDATE sales SET updated_at = datetime('now') WHERE updated_at IS NULL"
     );
   }
+  if (!salesNames.includes("deleted"))
+    db.execSync("ALTER TABLE sales ADD COLUMN deleted INTEGER DEFAULT 0");
+  if (!salesNames.includes("deleted_at"))
+    db.execSync("ALTER TABLE sales ADD COLUMN deleted_at TEXT");
+  if (!salesNames.includes("sync_status")) {
+    db.execSync("ALTER TABLE sales ADD COLUMN sync_status TEXT DEFAULT 'pending'");
+    db.execSync("UPDATE sales SET sync_status = 'pending' WHERE sync_status IS NULL");
+  }
+  if (!salesNames.includes("device_id"))
+    db.execSync("ALTER TABLE sales ADD COLUMN device_id TEXT");
 
   // ============================
-  // ৪. due_customers টেবিলের মাইগ্রেশন
+  // Migration: due_customers
   // ============================
-  const custCols = db.getAllSync<{ name: string }>(
-    "PRAGMA table_info(due_customers)"
-  );
+  const custCols = db.getAllSync<{ name: string }>("PRAGMA table_info(due_customers)");
   const custNames = custCols.map((c) => c.name);
 
-  if (!custNames.includes("phone")) {
+  if (!custNames.includes("phone"))
     db.execSync("ALTER TABLE due_customers ADD COLUMN phone TEXT");
-  }
-  if (!custNames.includes("address")) {
+  if (!custNames.includes("address"))
     db.execSync("ALTER TABLE due_customers ADD COLUMN address TEXT");
-  }
-  if (!custNames.includes("total_due")) {
+  if (!custNames.includes("total_due"))
     db.execSync("ALTER TABLE due_customers ADD COLUMN total_due REAL DEFAULT 0");
+  if (!custNames.includes("updated_at")) {
+    db.execSync("ALTER TABLE due_customers ADD COLUMN updated_at TEXT");
+    db.execSync(
+      "UPDATE due_customers SET updated_at = datetime('now') WHERE updated_at IS NULL"
+    );
   }
+  if (!custNames.includes("deleted"))
+    db.execSync("ALTER TABLE due_customers ADD COLUMN deleted INTEGER DEFAULT 0");
+  if (!custNames.includes("deleted_at"))
+    db.execSync("ALTER TABLE due_customers ADD COLUMN deleted_at TEXT");
+  if (!custNames.includes("sync_status")) {
+    db.execSync(
+      "ALTER TABLE due_customers ADD COLUMN sync_status TEXT DEFAULT 'pending'"
+    );
+    db.execSync(
+      "UPDATE due_customers SET sync_status = 'pending' WHERE sync_status IS NULL"
+    );
+  }
+  if (!custNames.includes("device_id"))
+    db.execSync("ALTER TABLE due_customers ADD COLUMN device_id TEXT");
+
+  // ============================
+  // Migration: due_payments
+  // ============================
+  const payCols = db.getAllSync<{ name: string }>("PRAGMA table_info(due_payments)");
+  const payNames = payCols.map((c) => c.name);
+
+  if (!payNames.includes("created_at"))
+    db.execSync(
+      "ALTER TABLE due_payments ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP"
+    );
+  if (!payNames.includes("note"))
+    db.execSync("ALTER TABLE due_payments ADD COLUMN note TEXT");
+  if (!payNames.includes("updated_at")) {
+    db.execSync("ALTER TABLE due_payments ADD COLUMN updated_at TEXT");
+    db.execSync(
+      "UPDATE due_payments SET updated_at = datetime('now') WHERE updated_at IS NULL"
+    );
+  }
+  if (!payNames.includes("deleted"))
+    db.execSync("ALTER TABLE due_payments ADD COLUMN deleted INTEGER DEFAULT 0");
+  if (!payNames.includes("deleted_at"))
+    db.execSync("ALTER TABLE due_payments ADD COLUMN deleted_at TEXT");
+  if (!payNames.includes("sync_status")) {
+    db.execSync(
+      "ALTER TABLE due_payments ADD COLUMN sync_status TEXT DEFAULT 'pending'"
+    );
+    db.execSync(
+      "UPDATE due_payments SET sync_status = 'pending' WHERE sync_status IS NULL"
+    );
+  }
+  if (!payNames.includes("device_id"))
+    db.execSync("ALTER TABLE due_payments ADD COLUMN device_id TEXT");
+
+  console.log("✅ Database initialized");
 }
