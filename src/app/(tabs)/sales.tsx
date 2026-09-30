@@ -98,6 +98,9 @@ export default function Sales() {
         setQuery("");
     };
 
+    // ============================
+    // +/- buttons
+    // ============================
     const changeQty = (id: number, delta: number) => {
         const product = products.find((p) => p.id === id);
         if (!product) return;
@@ -114,6 +117,31 @@ export default function Sales() {
                     return { ...i, qty: newQty };
                 })
                 .filter((i) => i.qty > 0)
+        );
+    };
+
+    // ============================
+    // ✅ Manual qty input
+    // ============================
+    const setQty = (id: number, qty: number) => {
+        const product = products.find((p) => p.id === id);
+        if (!product) return;
+
+        if (qty > product.stock) {
+            Alert.alert(
+                "স্টক সীমিত",
+                `মাত্র ${product.stock} ${product.unit} আছে`
+            );
+            return;
+        }
+
+        if (qty <= 0) {
+            setCart((prev) => prev.filter((i) => i.medicineId !== id));
+            return;
+        }
+
+        setCart((prev) =>
+            prev.map((i) => (i.medicineId === id ? { ...i, qty } : i))
         );
     };
 
@@ -161,14 +189,13 @@ export default function Sales() {
     };
 
     // ============================
-    // ✅ Payment Confirm (async)
+    // Payment Confirm
     // ============================
     const handleConfirmPayment = async (
         paid: number,
         method: PaymentMethod
     ) => {
         if (paid >= total) {
-            // সম্পূর্ণ পেমেন্ট
             try {
                 const saleId = await saveSale({
                     items: cart,
@@ -187,7 +214,6 @@ export default function Sales() {
                 Alert.alert("ত্রুটি", "বিল সেভ করা যায়নি");
             }
         } else {
-            // আংশিক পেমেন্ট → Due customer
             setPendingPayment({ paid, method });
             setPaymentOpen(false);
             setDueModalOpen(true);
@@ -195,7 +221,7 @@ export default function Sales() {
     };
 
     // ============================
-    // ✅ Due Customer Selected (async)
+    // Due Customer Selected
     // ============================
     const handleDueCustomerSelected = async (customerId: number) => {
         if (!pendingPayment) return;
@@ -241,6 +267,7 @@ export default function Sales() {
                     <CartList
                         items={cart}
                         onChangeQty={changeQty}
+                        onSetQty={setQty}
                         onRemove={removeItem}
                     />
                 </View>

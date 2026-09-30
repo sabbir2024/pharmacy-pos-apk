@@ -6,6 +6,7 @@ import CustomerCard from "./CustomerCard";
 type Props = {
     customers: Customer[];
     onView: (c: Customer) => void;
+    onEdit: (c: Customer) => void;
     onPay: (c: Customer) => void;
     onDelete: (id: number) => void;
 };
@@ -13,6 +14,7 @@ type Props = {
 export default function CustomerList({
     customers,
     onView,
+    onEdit,
     onPay,
     onDelete,
 }: Props) {
@@ -24,6 +26,7 @@ export default function CustomerList({
                 <CustomerCard
                     customer={item}
                     onView={onView}
+                    onEdit={onEdit}
                     onPay={onPay}
                     onDelete={onDelete}
                 />

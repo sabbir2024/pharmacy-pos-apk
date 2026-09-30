@@ -2,13 +2,14 @@
   "expo": {
     "name": "Pharmacy POS",
     "slug": "pharmacy-pos",
-    "version": "1.0.0",
+    "version": "3.0.5",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "pharmacypos",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
+      "buildNumber": "4",
       "infoPlist": {
         "NSCameraUsageDescription": "ঔষধের বারকোড স্ক্যান করার জন্য ক্যামেরা প্রয়োজন।",
         "NSFaceIDUsageDescription": "ডেটা সুরক্ষিত রাখতে Face ID ব্যবহার করুন।"
@@ -23,6 +24,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
+      "versionCode": 5,
       "permissions": [
         "CAMERA",
         "android.permission.CAMERA",

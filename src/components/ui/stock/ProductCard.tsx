@@ -106,7 +106,7 @@ export default function ProductCard({ product, onEdit, onDelete }: Props) {
                                     { color: profit >= 0 ? "#16a34a" : "#dc2626" },
                                 ]}
                             >
-                                লাভ: ৳ {profit}
+                                লাভ: ৳ {profit.toFixed(2)}
                             </Text>
                         )}
                     </View>

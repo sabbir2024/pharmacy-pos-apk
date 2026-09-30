@@ -1,9 +1,13 @@
+import { useAutoSync } from "@/hooks/useAutoSync";
 import { useSyncStatus } from "@/hooks/useSyncStatus";
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 
 export default function TabLayout() {
     const { isLoggedIn } = useSyncStatus();
+
+    // ✅ Auto sync only inside tabs
+    useAutoSync({ enabled: isLoggedIn, intervalMs: 5 * 60 * 1000 });
 
     return (
         <Tabs
@@ -77,7 +81,6 @@ export default function TabLayout() {
                 name="settings"
                 options={{
                     title: "সেটিংস",
-                    // 🆕 লাল ব্যাজ — Login না করলে
                     tabBarBadge: !isLoggedIn ? "" : undefined,
                     tabBarBadgeStyle: {
                         backgroundColor: "#dc2626",

@@ -4,6 +4,7 @@ import {
     ActivityIndicator,
     Alert,
     Modal,
+    ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -32,6 +33,19 @@ export default function InvoiceModal({ visible, saleId, onClose }: Props) {
 
     if (!invoice) return null;
 
+    // ============================
+    // Values
+    // ============================
+    const subtotal = items.reduce((s, i) => s + i.subtotal, 0);
+    const total = invoice.total;
+    const paid = invoice.paid;
+    const change = invoice.change;
+    const dueAmount = invoice.dueAmount;
+    const isDue = invoice.isDue === 1;
+
+    // ============================
+    // PDF Download
+    // ============================
     const handleDownload = async () => {
         try {
             setLoading("save");
@@ -67,6 +81,7 @@ export default function InvoiceModal({ visible, saleId, onClose }: Props) {
         >
             <View style={styles.overlay}>
                 <View style={styles.container}>
+                    {/* Success icon */}
                     <View style={styles.successIcon}>
                         <Ionicons name="checkmark-circle" size={64} color="#16a34a" />
                     </View>
@@ -74,28 +89,160 @@ export default function InvoiceModal({ visible, saleId, onClose }: Props) {
                     <Text style={styles.title}>বিল সেভ হয়েছে</Text>
                     <Text style={styles.subtitle}>ইনভয়েস #{invoice.id}</Text>
 
-                    <View style={styles.summary}>
-                        <Row label="তারিখ" value={formatDateTime(invoice.createdAt)} />
-                        <Row label="মোট" value={formatTk(invoice.total)} />
-                        <Row label="পরিশোধিত" value={formatTk(invoice.paid)} />
-                        {invoice.isDue ? (
-                            <Row
-                                label="বাকি"
-                                value={formatTk(invoice.dueAmount)}
-                                color="#d97706"
-                            />
-                        ) : (
-                            <Row
-                                label="ফেরত"
-                                value={formatTk(invoice.change)}
-                                color="#16a34a"
-                            />
-                        )}
-                        {invoice.customerName && (
-                            <Row label="কাস্টমার" value={invoice.customerName} />
-                        )}
-                    </View>
+                    <ScrollView
+                        showsVerticalScrollIndicator={false}
+                        style={{ maxHeight: 400 }}
+                        contentContainerStyle={{ paddingBottom: 10 }}
+                    >
+                        {/* ============================ */}
+                        {/* Bill Summary */}
+                        {/* ============================ */}
+                        <View style={styles.billBox}>
+                            {/* Date */}
+                            <View style={styles.billRow}>
+                                <Text style={styles.billLabel}>তারিখ</Text>
+                                <Text style={styles.billValue}>
+                                    {formatDateTime(invoice.createdAt)}
+                                </Text>
+                            </View>
 
+                            {/* Customer */}
+                            {invoice.customerName && (
+                                <View style={styles.billRow}>
+                                    <Text style={styles.billLabel}>কাস্টমার</Text>
+                                    <Text style={styles.billValue}>
+                                        {invoice.customerName}
+                                    </Text>
+                                </View>
+                            )}
+
+                            <View style={styles.divider} />
+
+                            {/* Subtotal */}
+                            <View style={styles.billRow}>
+                                <Text style={styles.billLabel}>সাবটোটাল</Text>
+                                <Text style={styles.billValue}>{formatTk(subtotal)}</Text>
+                            </View>
+
+                            {/* Discount */}
+                            {invoice.discount > 0 && (
+                                <View style={styles.billRow}>
+                                    <Text style={styles.billLabel}>ডিসকাউন্ট</Text>
+                                    <Text style={[styles.billValue, { color: "#dc2626" }]}>
+                                        − {formatTk(invoice.discount)}
+                                    </Text>
+                                </View>
+                            )}
+
+                            {/* VAT */}
+                            {invoice.vat > 0 && (
+                                <View style={styles.billRow}>
+                                    <Text style={styles.billLabel}>VAT</Text>
+                                    <Text style={[styles.billValue, { color: "#d97706" }]}>
+                                        + {formatTk(invoice.vat)}
+                                    </Text>
+                                </View>
+                            )}
+
+                            {/* Total */}
+                            <View style={styles.totalRow}>
+                                <Text style={styles.totalLabel}>মোট</Text>
+                                <Text style={styles.totalValue}>{formatTk(total)}</Text>
+                            </View>
+
+                            <View style={styles.divider} />
+
+                            {/* ============================ */}
+                            {/* ✅ Payment Details */}
+                            {/* ============================ */}
+                            <View style={styles.billRow}>
+                                <View style={styles.payLabelRow}>
+                                    <Ionicons name="cash-outline" size={16} color="#16a34a" />
+                                    <Text style={styles.payLabel}>কাস্টমার দিয়েছে</Text>
+                                </View>
+                                <Text style={styles.payValue}>{formatTk(paid)}</Text>
+                            </View>
+
+                            {/* Change / Due */}
+                            {isDue ? (
+                                <View style={styles.billRow}>
+                                    <View style={styles.payLabelRow}>
+                                        <Ionicons
+                                            name="alert-circle-outline"
+                                            size={16}
+                                            color="#d97706"
+                                        />
+                                        <Text style={[styles.payLabel, { color: "#d97706" }]}>
+                                            বাকি থাকবে
+                                        </Text>
+                                    </View>
+                                    <Text
+                                        style={[styles.payValue, { color: "#d97706" }]}
+                                    >
+                                        {formatTk(dueAmount)}
+                                    </Text>
+                                </View>
+                            ) : (
+                                <View style={styles.billRow}>
+                                    <View style={styles.payLabelRow}>
+                                        <Ionicons
+                                            name="return-down-back-outline"
+                                            size={16}
+                                            color="#dc2626"
+                                        />
+                                        <Text style={[styles.payLabel, { color: "#dc2626" }]}>
+                                            ফেরত দিতে হবে
+                                        </Text>
+                                    </View>
+                                    <Text
+                                        style={[styles.payValue, { color: "#dc2626" }]}
+                                    >
+                                        {formatTk(change)}
+                                    </Text>
+                                </View>
+                            )}
+
+                            {/* Payment method */}
+                            <View style={styles.billRow}>
+                                <Text style={styles.billLabel}>পেমেন্ট মেথড</Text>
+                                <Text style={styles.billValue}>
+                                    {invoice.paymentMethod === "cash"
+                                        ? "ক্যাশ"
+                                        : invoice.paymentMethod === "card"
+                                            ? "কার্ড"
+                                            : "বিকাশ"}
+                                </Text>
+                            </View>
+
+                            {/* Status badge */}
+                            <View style={styles.statusBox}>
+                                <View
+                                    style={[
+                                        styles.statusBadge,
+                                        isDue ? styles.statusDue : styles.statusPaid,
+                                    ]}
+                                >
+                                    <Ionicons
+                                        name={isDue ? "time-outline" : "checkmark-circle"}
+                                        size={14}
+                                        color={isDue ? "#92400e" : "#166534"}
+                                    />
+                                    <Text
+                                        style={[
+                                            styles.statusText,
+                                            isDue ? styles.statusTextDue : styles.statusTextPaid,
+                                        ]}
+                                    >
+                                        {isDue ? "বাকি আছে" : "সম্পূর্ণ পরিশোধিত"}
+                                    </Text>
+                                </View>
+                            </View>
+                        </View>
+                    </ScrollView>
+
+                    {/* ============================ */}
+                    {/* Actions */}
+                    {/* ============================ */}
                     <View style={styles.actionsRow}>
                         <TouchableOpacity
                             style={[styles.actionBtn, styles.saveBtn]}
@@ -106,7 +253,11 @@ export default function InvoiceModal({ visible, saleId, onClose }: Props) {
                                 <ActivityIndicator color="#fff" />
                             ) : (
                                 <>
-                                    <Ionicons name="download-outline" size={20} color="#fff" />
+                                    <Ionicons
+                                        name="download-outline"
+                                        size={20}
+                                        color="#fff"
+                                    />
                                     <Text style={styles.actionText}>PDF সেভ</Text>
                                 </>
                             )}
@@ -121,7 +272,11 @@ export default function InvoiceModal({ visible, saleId, onClose }: Props) {
                                 <ActivityIndicator color="#0d9488" />
                             ) : (
                                 <>
-                                    <Ionicons name="share-outline" size={20} color="#0d9488" />
+                                    <Ionicons
+                                        name="share-outline"
+                                        size={20}
+                                        color="#0d9488"
+                                    />
                                     <Text style={[styles.actionText, { color: "#0d9488" }]}>
                                         শেয়ার
                                     </Text>
@@ -139,23 +294,6 @@ export default function InvoiceModal({ visible, saleId, onClose }: Props) {
     );
 }
 
-function Row({
-    label,
-    value,
-    color,
-}: {
-    label: string;
-    value: string;
-    color?: string;
-}) {
-    return (
-        <View style={styles.row}>
-            <Text style={styles.rowLabel}>{label}</Text>
-            <Text style={[styles.rowValue, color && { color }]}>{value}</Text>
-        </View>
-    );
-}
-
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
@@ -167,6 +305,7 @@ const styles = StyleSheet.create({
         backgroundColor: "#fff",
         borderRadius: 20,
         padding: 20,
+        maxHeight: "95%",
     },
     successIcon: { alignItems: "center", marginBottom: 8 },
     title: {
@@ -181,20 +320,80 @@ const styles = StyleSheet.create({
         textAlign: "center",
         marginBottom: 16,
     },
-    summary: {
+
+    billBox: {
         backgroundColor: "#f9fafb",
-        padding: 14,
         borderRadius: 12,
-        marginBottom: 16,
+        padding: 14,
+        marginBottom: 10,
     },
-    row: {
+    billRow: {
         flexDirection: "row",
         justifyContent: "space-between",
-        paddingVertical: 4,
+        alignItems: "center",
+        paddingVertical: 5,
     },
-    rowLabel: { fontSize: 13, color: "#6b7280" },
-    rowValue: { fontSize: 14, fontWeight: "700", color: "#111827" },
-    actionsRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
+    billLabel: { fontSize: 13, color: "#6b7280" },
+    billValue: { fontSize: 13, fontWeight: "600", color: "#111827" },
+
+    payLabelRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+    },
+    payLabel: {
+        fontSize: 13,
+        color: "#16a34a",
+        fontWeight: "600",
+    },
+    payValue: {
+        fontSize: 15,
+        fontWeight: "800",
+        color: "#16a34a",
+    },
+
+    divider: {
+        height: 1,
+        backgroundColor: "#e5e7eb",
+        marginVertical: 8,
+    },
+
+    totalRow: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        paddingVertical: 8,
+        marginTop: 4,
+        borderTopWidth: 1,
+        borderTopColor: "#e5e7eb",
+    },
+    totalLabel: { fontSize: 16, fontWeight: "700", color: "#111827" },
+    totalValue: { fontSize: 22, fontWeight: "800", color: "#0d9488" },
+
+    statusBox: {
+        alignItems: "center",
+        marginTop: 12,
+    },
+    statusBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 20,
+    },
+    statusPaid: { backgroundColor: "#dcfce7" },
+    statusDue: { backgroundColor: "#fef3c7" },
+    statusText: { fontSize: 12, fontWeight: "700" },
+    statusTextPaid: { color: "#166534" },
+    statusTextDue: { color: "#92400e" },
+
+    actionsRow: {
+        flexDirection: "row",
+        gap: 10,
+        marginTop: 12,
+        marginBottom: 10,
+    },
     actionBtn: {
         flex: 1,
         flexDirection: "row",
@@ -211,6 +410,7 @@ const styles = StyleSheet.create({
         borderColor: "#0d9488",
     },
     actionText: { color: "#fff", fontWeight: "700" },
+
     closeBtn: {
         paddingVertical: 12,
         borderRadius: 10,

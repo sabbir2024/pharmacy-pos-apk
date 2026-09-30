@@ -1,21 +1,26 @@
 import {
     CustomerLedger,
     CustomerList,
+    OpeningBalanceModal,
 } from "@/components/ui/customers";
 import {
     addCustomer,
     deleteCustomer,
     getAllCustomers,
     payDue,
+    updateCustomer,
     type Customer,
 } from "@/db/customers";
 import { formatTk } from "@/utils/format";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
     Alert,
+    KeyboardAvoidingView,
     Modal,
+    Platform,
+    ScrollView,
     StyleSheet,
     Text,
     TextInput,
@@ -23,39 +28,82 @@ import {
     View,
 } from "react-native";
 
+type TabKey = "all" | "due" | "paid";
+
 export default function DueCustomers() {
     const [customers, setCustomers] = useState<Customer[]>([]);
+    const [search, setSearch] = useState("");
+    const [tab, setTab] = useState<TabKey>("all"); // 🆕
+
     const [payModal, setPayModal] = useState(false);
     const [addModal, setAddModal] = useState(false);
-    const [ledgerCustomer, setLedgerCustomer] = useState<Customer | null>(null);
+    const [editModal, setEditModal] = useState(false);
+    const [openingModal, setOpeningModal] = useState(false);
     const [ledgerOpen, setLedgerOpen] = useState(false);
+
     const [selected, setSelected] = useState<Customer | null>(null);
+    const [ledgerCustomer, setLedgerCustomer] = useState<Customer | null>(null);
     const [payAmount, setPayAmount] = useState("");
 
-    const [newName, setNewName] = useState("");
-    const [newPhone, setNewPhone] = useState("");
-    const [newAddress, setNewAddress] = useState("");
+    const [formName, setFormName] = useState("");
+    const [formPhone, setFormPhone] = useState("");
+    const [formAddress, setFormAddress] = useState("");
+    const [saving, setSaving] = useState(false);
 
     // ============================
-    // Load Customers
+    // Load
     // ============================
     const load = () => {
         try {
-            const data = getAllCustomers();
-            setCustomers(data);
+            setCustomers(getAllCustomers());
         } catch (e) {
-            console.error("Load customers error:", e);
+            console.error(e);
         }
     };
 
-    // ✅ প্রতি বার ফোকাস হলে রিফ্রেশ
     useFocusEffect(
         React.useCallback(() => {
             load();
         }, [])
     );
 
+    // ============================
+    // 🆕 Counts
+    // ============================
+    const counts = useMemo(() => {
+        const all = customers.length;
+        const due = customers.filter((c) => c.totalDue > 0).length;
+        const paid = customers.filter((c) => c.totalDue <= 0).length;
+        return { all, due, paid };
+    }, [customers]);
+
     const totalDue = customers.reduce((s, c) => s + c.totalDue, 0);
+
+    // ============================
+    // 🆕 Tab + Search filter
+    // ============================
+    const filtered = useMemo(() => {
+        // Step 1: Tab filter
+        let list = customers;
+        if (tab === "due") {
+            list = list.filter((c) => c.totalDue > 0);
+        } else if (tab === "paid") {
+            list = list.filter((c) => c.totalDue <= 0);
+        }
+
+        // Step 2: Search filter
+        if (search.trim()) {
+            const q = search.toLowerCase().trim();
+            list = list.filter(
+                (c) =>
+                    c.name.toLowerCase().includes(q) ||
+                    c.phone?.includes(q) ||
+                    c.address?.toLowerCase().includes(q)
+            );
+        }
+
+        return list;
+    }, [customers, search, tab]);
 
     // ============================
     // Delete
@@ -66,18 +114,22 @@ export default function DueCustomers() {
             {
                 text: "হ্যাঁ",
                 style: "destructive",
-                onPress: () => {
-                    deleteCustomer(id);
-                    load();
+                onPress: async () => {
+                    try {
+                        await deleteCustomer(id);
+                        load();
+                    } catch (e: any) {
+                        Alert.alert("ত্রুটি", e?.message);
+                    }
                 },
             },
         ]);
     };
 
     // ============================
-    // ✅ Payment নেওয়া
+    // Payment
     // ============================
-    const handlePay = () => {
+    const handlePay = async () => {
         if (!selected) return;
 
         const amt = parseFloat(payAmount);
@@ -88,56 +140,109 @@ export default function DueCustomers() {
         if (amt > selected.totalDue) {
             Alert.alert(
                 "ত্রুটি",
-                `বাকির চেয়ে বেশি দিতে পারবেন না। বাকি: ৳${selected.totalDue}`
+                `বাকির চেয়ে বেশি দিতে পারবেন না। বাকি: ${formatTk(
+                    selected.totalDue
+                )}`
             );
             return;
         }
 
         try {
-            payDue(selected.id!, amt, "ক্যাশ পেমেন্ট");
-
-            // ✅ Customer list রিফ্রেশ
+            await payDue(selected.id!, amt, "ক্যাশ পেমেন্ট");
             load();
-
-            // Modal বন্ধ
             setPayModal(false);
             setSelected(null);
             setPayAmount("");
-
-            Alert.alert(
-                "✅ সফল",
-                `৳${amt} জমা নেওয়া হয়েছে\n\nবাকি: ৳${selected.totalDue - amt}`
-            );
+            Alert.alert("✅ সফল", `${formatTk(amt)} জমা নেওয়া হয়েছে`);
         } catch (e: any) {
-            console.error("Payment error:", e);
-            Alert.alert("ত্রুটি", e?.message || "পেমেন্ট নেওয়া যায়নি");
+            Alert.alert("ত্রুটি", e?.message);
         }
     };
 
     // ============================
-    // নতুন Customer
+    // Add
     // ============================
-    const handleAddNew = () => {
-        if (!newName.trim()) {
+    const openAddModal = () => {
+        setFormName("");
+        setFormPhone("");
+        setFormAddress("");
+        setAddModal(true);
+    };
+
+    const handleAdd = async () => {
+        if (!formName.trim()) {
             Alert.alert("ত্রুটি", "নাম দিন");
             return;
         }
+
         try {
-            addCustomer({
-                name: newName.trim(),
-                phone: newPhone.trim(),
-                address: newAddress.trim(),
+            setSaving(true);
+            await addCustomer({
+                name: formName.trim(),
+                phone: formPhone.trim(),
+                address: formAddress.trim(),
                 totalDue: 0,
             });
             setAddModal(false);
-            setNewName("");
-            setNewPhone("");
-            setNewAddress("");
             load();
         } catch (e: any) {
             Alert.alert("ত্রুটি", e?.message || "সেভ করা যায়নি");
+        } finally {
+            setSaving(false);
         }
     };
+
+    // ============================
+    // Edit
+    // ============================
+    const openEditModal = (customer: Customer) => {
+        setSelected(customer);
+        setFormName(customer.name);
+        setFormPhone(customer.phone || "");
+        setFormAddress(customer.address || "");
+        setEditModal(true);
+    };
+
+    const handleEditSave = async () => {
+        if (!selected) return;
+        if (!formName.trim()) {
+            Alert.alert("ত্রুটি", "নাম দিন");
+            return;
+        }
+
+        try {
+            setSaving(true);
+            await updateCustomer({
+                id: selected.id,
+                name: formName.trim(),
+                phone: formPhone.trim(),
+                address: formAddress.trim(),
+                totalDue: selected.totalDue,
+            });
+            setEditModal(false);
+            setSelected(null);
+            load();
+            Alert.alert("✅ সফল", "কাস্টমার আপডেট হয়েছে");
+        } catch (e: any) {
+            Alert.alert("ত্রুটি", e?.message || "আপডেট করা যায়নি");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const openOpeningModal = () => {
+        setEditModal(false);
+        setOpeningModal(true);
+    };
+
+    // ============================
+    // Tab config
+    // ============================
+    const tabs: { key: TabKey; label: string; count: number; color: string }[] = [
+        { key: "all", label: "সব", count: counts.all, color: "#0d9488" },
+        { key: "due", label: "বাকি আছে", count: counts.due, color: "#d97706" },
+        { key: "paid", label: "পরিশোধিত", count: counts.paid, color: "#16a34a" },
+    ];
 
     return (
         <View style={styles.container}>
@@ -150,24 +255,93 @@ export default function DueCustomers() {
                 <View style={styles.summaryRight}>
                     <View style={styles.summaryChip}>
                         <Text style={styles.summaryChipText}>
-                            {customers.length} কাস্টমার
-                        </Text>
-                    </View>
-                    <View style={styles.summaryChip}>
-                        <Text style={styles.summaryChipText}>
-                            {customers.filter((c) => c.totalDue > 0).length} বাকি
+                            {counts.all} কাস্টমার
                         </Text>
                     </View>
                 </View>
             </View>
 
-            {/* Customer List */}
+            {/* 🆕 Tabs */}
+            <View style={styles.tabBar}>
+                {tabs.map((t) => {
+                    const active = tab === t.key;
+                    return (
+                        <TouchableOpacity
+                            key={t.key}
+                            style={[
+                                styles.tabBtn,
+                                active && { backgroundColor: t.color },
+                            ]}
+                            onPress={() => setTab(t.key)}
+                            activeOpacity={0.7}
+                        >
+                            <Text
+                                style={[
+                                    styles.tabText,
+                                    active && styles.tabTextActive,
+                                ]}
+                            >
+                                {t.label}
+                            </Text>
+                            <View
+                                style={[
+                                    styles.tabBadge,
+                                    active
+                                        ? { backgroundColor: "rgba(255,255,255,0.25)" }
+                                        : { backgroundColor: "#f3f4f6" },
+                                ]}
+                            >
+                                <Text
+                                    style={[
+                                        styles.tabBadgeText,
+                                        active && { color: "#fff" },
+                                    ]}
+                                >
+                                    {t.count}
+                                </Text>
+                            </View>
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
+
+            {/* Search Bar */}
+            <View style={styles.searchBox}>
+                <Ionicons name="search" size={18} color="#9ca3af" />
+                <TextInput
+                    style={styles.searchInput}
+                    value={search}
+                    onChangeText={setSearch}
+                    placeholder="নাম / ফোন / ঠিকানা..."
+                    placeholderTextColor="#9ca3af"
+                />
+                {search.length > 0 && (
+                    <TouchableOpacity
+                        onPress={() => setSearch("")}
+                        style={styles.clearIcon}
+                    >
+                        <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                    </TouchableOpacity>
+                )}
+            </View>
+
+            {/* Result count */}
+            {(search.trim().length > 0 || tab !== "all") && (
+                <View style={styles.resultInfo}>
+                    <Text style={styles.resultText}>
+                        {filtered.length}টি কাস্টমার পাওয়া গেছে
+                    </Text>
+                </View>
+            )}
+
+            {/* List */}
             <CustomerList
-                customers={customers}
+                customers={filtered}
                 onView={(c) => {
                     setLedgerCustomer(c);
                     setLedgerOpen(true);
                 }}
+                onEdit={openEditModal}
                 onPay={(c) => {
                     setSelected(c);
                     setPayAmount(String(c.totalDue));
@@ -176,19 +350,17 @@ export default function DueCustomers() {
                 onDelete={handleDelete}
             />
 
-            {/* FAB — Add Customer */}
-            <TouchableOpacity
-                style={styles.fab}
-                onPress={() => setAddModal(true)}
-            >
+            {/* FAB */}
+            <TouchableOpacity style={styles.fab} onPress={openAddModal}>
                 <Ionicons name="person-add" size={26} color="#fff" />
             </TouchableOpacity>
 
-            {/* ============================ */}
             {/* Pay Modal */}
-            {/* ============================ */}
             <Modal visible={payModal} transparent animationType="slide">
-                <View style={styles.modalOverlay}>
+                <KeyboardAvoidingView
+                    style={styles.modalOverlay}
+                    behavior={Platform.OS === "ios" ? "padding" : "height"}
+                >
                     <View style={styles.modalBox}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>পেমেন্ট নিন</Text>
@@ -212,8 +384,7 @@ export default function DueCustomers() {
                             placeholderTextColor="#9ca3af"
                         />
 
-                        {/* Quick amounts */}
-                        {selected && selected.totalDue > 0 && (
+                        {selected && (
                             <View style={styles.quickRow}>
                                 {[100, 500, 1000].map((amt) => (
                                     <TouchableOpacity
@@ -235,21 +406,6 @@ export default function DueCustomers() {
                             </View>
                         )}
 
-                        {/* Remaining preview */}
-                        {selected && parseFloat(payAmount) > 0 && (
-                            <View style={styles.previewBox}>
-                                <Text style={styles.previewLabel}>জমার পর বাকি থাকবে:</Text>
-                                <Text style={styles.previewValue}>
-                                    {formatTk(
-                                        Math.max(
-                                            0,
-                                            selected.totalDue - (parseFloat(payAmount) || 0)
-                                        )
-                                    )}
-                                </Text>
-                            </View>
-                        )}
-
                         <View style={styles.row}>
                             <TouchableOpacity
                                 style={styles.cancelBtn}
@@ -262,14 +418,15 @@ export default function DueCustomers() {
                             </TouchableOpacity>
                         </View>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
 
-            {/* ============================ */}
-            {/* Add Customer Modal */}
-            {/* ============================ */}
+            {/* Add Modal */}
             <Modal visible={addModal} transparent animationType="slide">
-                <View style={styles.modalOverlay}>
+                <KeyboardAvoidingView
+                    style={styles.modalOverlay}
+                    behavior={Platform.OS === "ios" ? "padding" : "height"}
+                >
                     <View style={styles.modalBox}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>নতুন কাস্টমার</Text>
@@ -278,59 +435,174 @@ export default function DueCustomers() {
                             </TouchableOpacity>
                         </View>
 
-                        <Text style={styles.label}>নাম *</Text>
-                        <TextInput
-                            style={styles.input}
-                            value={newName}
-                            onChangeText={setNewName}
-                            placeholder="কাস্টমারের নাম"
-                            placeholderTextColor="#9ca3af"
-                        />
+                        <ScrollView keyboardShouldPersistTaps="handled">
+                            <Text style={styles.label}>নাম *</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={formName}
+                                onChangeText={setFormName}
+                                placeholder="কাস্টমারের নাম"
+                                placeholderTextColor="#9ca3af"
+                                autoFocus
+                            />
 
-                        <Text style={styles.label}>ফোন</Text>
-                        <TextInput
-                            style={styles.input}
-                            value={newPhone}
-                            onChangeText={setNewPhone}
-                            keyboardType="phone-pad"
-                            placeholder="01XXXXXXXXX"
-                            placeholderTextColor="#9ca3af"
-                        />
+                            <Text style={styles.label}>ফোন</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={formPhone}
+                                onChangeText={setFormPhone}
+                                keyboardType="phone-pad"
+                                placeholder="01XXXXXXXXX"
+                                placeholderTextColor="#9ca3af"
+                            />
 
-                        <Text style={styles.label}>ঠিকানা</Text>
-                        <TextInput
-                            style={styles.input}
-                            value={newAddress}
-                            onChangeText={setNewAddress}
-                            placeholder="গ্রাম / শহর"
-                            placeholderTextColor="#9ca3af"
-                        />
+                            <Text style={styles.label}>ঠিকানা</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={formAddress}
+                                onChangeText={setFormAddress}
+                                placeholder="গ্রাম / শহর"
+                                placeholderTextColor="#9ca3af"
+                            />
 
-                        <View style={styles.row}>
-                            <TouchableOpacity
-                                style={styles.cancelBtn}
-                                onPress={() => setAddModal(false)}
-                            >
-                                <Text style={styles.cancelText}>বাতিল</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.saveBtn} onPress={handleAddNew}>
-                                <Text style={styles.saveText}>সেভ</Text>
-                            </TouchableOpacity>
-                        </View>
+                            <View style={styles.row}>
+                                <TouchableOpacity
+                                    style={styles.cancelBtn}
+                                    onPress={() => setAddModal(false)}
+                                    disabled={saving}
+                                >
+                                    <Text style={styles.cancelText}>বাতিল</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.saveBtn, saving && { opacity: 0.6 }]}
+                                    onPress={handleAdd}
+                                    disabled={saving}
+                                >
+                                    <Text style={styles.saveText}>
+                                        {saving ? "সেভ হচ্ছে..." : "সেভ"}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
                     </View>
-                </View>
+                </KeyboardAvoidingView>
             </Modal>
 
-            {/* ============================ */}
-            {/* Ledger Modal */}
-            {/* ============================ */}
+            {/* Edit Modal */}
+            <Modal visible={editModal} transparent animationType="slide">
+                <KeyboardAvoidingView
+                    style={styles.modalOverlay}
+                    behavior={Platform.OS === "ios" ? "padding" : "height"}
+                >
+                    <View style={styles.modalBox}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>কাস্টমার এডিট</Text>
+                            <TouchableOpacity onPress={() => setEditModal(false)}>
+                                <Ionicons name="close" size={24} color="#374151" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView keyboardShouldPersistTaps="handled">
+                            <Text style={styles.label}>নাম *</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={formName}
+                                onChangeText={setFormName}
+                                placeholder="কাস্টমারের নাম"
+                                placeholderTextColor="#9ca3af"
+                                autoFocus
+                            />
+
+                            <Text style={styles.label}>ফোন</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={formPhone}
+                                onChangeText={setFormPhone}
+                                keyboardType="phone-pad"
+                                placeholder="01XXXXXXXXX"
+                                placeholderTextColor="#9ca3af"
+                            />
+
+                            <Text style={styles.label}>ঠিকানা</Text>
+                            <TextInput
+                                style={styles.input}
+                                value={formAddress}
+                                onChangeText={setFormAddress}
+                                placeholder="গ্রাম / শহর"
+                                placeholderTextColor="#9ca3af"
+                            />
+
+                            {selected && (
+                                <View style={styles.dueInfoBox}>
+                                    <Ionicons
+                                        name="information-circle-outline"
+                                        size={16}
+                                        color="#d97706"
+                                    />
+                                    <Text style={styles.dueInfoText}>
+                                        বর্তমান বাকি: {formatTk(selected.totalDue)} (পরিবর্তন হবে
+                                        না)
+                                    </Text>
+                                </View>
+                            )}
+
+                            <TouchableOpacity
+                                style={styles.openingBtn}
+                                onPress={openOpeningModal}
+                            >
+                                <Ionicons name="flag-outline" size={18} color="#3b82f6" />
+                                <Text style={styles.openingBtnText}>
+                                    পুরনো বাকি সেট করুন
+                                </Text>
+                                {selected?.openingBalance ? (
+                                    <Text style={styles.openingAmount}>
+                                        {formatTk(selected.openingBalance)}
+                                    </Text>
+                                ) : null}
+                            </TouchableOpacity>
+
+                            <View style={styles.row}>
+                                <TouchableOpacity
+                                    style={styles.cancelBtn}
+                                    onPress={() => setEditModal(false)}
+                                    disabled={saving}
+                                >
+                                    <Text style={styles.cancelText}>বাতিল</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.saveBtn, saving && { opacity: 0.6 }]}
+                                    onPress={handleEditSave}
+                                    disabled={saving}
+                                >
+                                    <Text style={styles.saveText}>
+                                        {saving ? "সেভ হচ্ছে..." : "আপডেট"}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </View>
+                </KeyboardAvoidingView>
+            </Modal>
+
+            {/* Opening Balance Modal */}
+            <OpeningBalanceModal
+                visible={openingModal}
+                customer={selected}
+                onClose={() => {
+                    setOpeningModal(false);
+                    setSelected(null);
+                }}
+                onSuccess={load}
+            />
+
+            {/* Ledger */}
             <CustomerLedger
                 visible={ledgerOpen}
                 customer={ledgerCustomer}
                 onClose={() => {
                     setLedgerOpen(false);
                     setLedgerCustomer(null);
-                    load(); // ✅ Refreshed when closed
+                    load();
                 }}
             />
         </View>
@@ -351,17 +623,87 @@ const styles = StyleSheet.create({
     },
     sumLabel: { fontSize: 13, color: "#92400e", fontWeight: "600" },
     sumValue: { fontSize: 22, fontWeight: "800", color: "#d97706" },
-    summaryRight: {
-        flexDirection: "row",
-        gap: 6,
-    },
+    summaryRight: { flexDirection: "row", gap: 6 },
     summaryChip: {
         backgroundColor: "#fff",
         paddingHorizontal: 8,
         paddingVertical: 4,
         borderRadius: 8,
     },
-    summaryChipText: { fontSize: 10, color: "#92400e", fontWeight: "700" },
+    summaryChipText: {
+        fontSize: 10,
+        color: "#92400e",
+        fontWeight: "700",
+    },
+
+    // 🆕 Tab styles
+    tabBar: {
+        flexDirection: "row",
+        backgroundColor: "#fff",
+        padding: 4,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: "#e5e7eb",
+        marginBottom: 10,
+        gap: 4,
+    },
+    tabBtn: {
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        paddingVertical: 10,
+        borderRadius: 8,
+        backgroundColor: "#f9fafb",
+    },
+    tabText: {
+        fontSize: 13,
+        fontWeight: "700",
+        color: "#6b7280",
+    },
+    tabTextActive: {
+        color: "#fff",
+    },
+    tabBadge: {
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+        borderRadius: 10,
+        minWidth: 22,
+        alignItems: "center",
+    },
+    tabBadgeText: {
+        fontSize: 11,
+        fontWeight: "800",
+        color: "#6b7280",
+    },
+
+    // Search
+    searchBox: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#fff",
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        borderWidth: 1,
+        borderColor: "#e5e7eb",
+        marginBottom: 8,
+    },
+    searchInput: {
+        flex: 1,
+        paddingVertical: 10,
+        paddingHorizontal: 8,
+        fontSize: 15,
+        color: "#111827",
+    },
+    clearIcon: { padding: 4 },
+
+    resultInfo: { marginBottom: 8 },
+    resultText: {
+        fontSize: 11,
+        color: "#6b7280",
+        fontStyle: "italic",
+    },
 
     fab: {
         position: "absolute",
@@ -374,11 +716,7 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
         elevation: 4,
-        shadowColor: "#000",
-        shadowOpacity: 0.2,
-        shadowRadius: 6,
     },
-
     modalOverlay: {
         flex: 1,
         backgroundColor: "rgba(0,0,0,0.4)",
@@ -389,6 +727,7 @@ const styles = StyleSheet.create({
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         padding: 20,
+        maxHeight: "90%",
     },
     modalHeader: {
         flexDirection: "row",
@@ -396,11 +735,7 @@ const styles = StyleSheet.create({
         alignItems: "center",
         marginBottom: 12,
     },
-    modalTitle: {
-        fontSize: 18,
-        fontWeight: "700",
-        color: "#0d9488",
-    },
+    modalTitle: { fontSize: 18, fontWeight: "700", color: "#0d9488" },
     modalSub: { fontSize: 14, color: "#374151", fontWeight: "600" },
     modalDue: {
         fontSize: 15,
@@ -409,7 +744,6 @@ const styles = StyleSheet.create({
         marginTop: 4,
         marginBottom: 14,
     },
-
     label: {
         fontSize: 13,
         color: "#374151",
@@ -427,12 +761,7 @@ const styles = StyleSheet.create({
         backgroundColor: "#f9fafb",
         color: "#111827",
     },
-
-    quickRow: {
-        flexDirection: "row",
-        gap: 6,
-        marginTop: 10,
-    },
+    quickRow: { flexDirection: "row", gap: 6, marginTop: 10 },
     quickBtn: {
         flex: 1,
         paddingVertical: 8,
@@ -440,27 +769,8 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         alignItems: "center",
     },
-    quickText: {
-        fontSize: 12,
-        fontWeight: "700",
-        color: "#374151",
-    },
-
-    previewBox: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        backgroundColor: "#f0fdf4",
-        padding: 12,
-        borderRadius: 10,
-        marginTop: 12,
-        borderWidth: 1,
-        borderColor: "#bbf7d0",
-    },
-    previewLabel: { fontSize: 12, color: "#166534" },
-    previewValue: { fontSize: 16, fontWeight: "800", color: "#16a34a" },
-
-    row: { flexDirection: "row", gap: 8, marginTop: 16 },
+    quickText: { fontSize: 12, fontWeight: "700", color: "#374151" },
+    row: { flexDirection: "row", gap: 8, marginTop: 16, marginBottom: 8 },
     cancelBtn: {
         flex: 1,
         paddingVertical: 12,
@@ -477,4 +787,42 @@ const styles = StyleSheet.create({
         alignItems: "center",
     },
     saveText: { color: "#fff", fontWeight: "700" },
+    dueInfoBox: {
+        flexDirection: "row",
+        gap: 6,
+        backgroundColor: "#fef3c7",
+        padding: 10,
+        borderRadius: 10,
+        marginTop: 12,
+        alignItems: "center",
+    },
+    dueInfoText: {
+        fontSize: 11,
+        color: "#92400e",
+        fontWeight: "600",
+        flex: 1,
+    },
+    openingBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingVertical: 12,
+        paddingHorizontal: 12,
+        borderRadius: 10,
+        backgroundColor: "#eff6ff",
+        borderWidth: 1,
+        borderColor: "#bfdbfe",
+        marginTop: 12,
+    },
+    openingBtnText: {
+        flex: 1,
+        color: "#3b82f6",
+        fontWeight: "700",
+        fontSize: 13,
+    },
+    openingAmount: {
+        color: "#3b82f6",
+        fontWeight: "800",
+        fontSize: 14,
+    },
 });

@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
+    ActivityIndicator,
     Alert,
     FlatList,
     Modal,
@@ -32,14 +33,22 @@ export default function DueCustomerModal({
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [search, setSearch] = useState("");
     const [showAddForm, setShowAddForm] = useState(false);
+    const [saving, setSaving] = useState(false);
 
     const [name, setName] = useState("");
     const [phone, setPhone] = useState("");
     const [address, setAddress] = useState("");
 
+    // ============================
+    // Load customers when modal opens
+    // ============================
     useEffect(() => {
         if (visible) {
-            setCustomers(getAllCustomers());
+            try {
+                setCustomers(getAllCustomers());
+            } catch (e) {
+                console.error("Load customers error:", e);
+            }
             setShowAddForm(false);
             setSearch("");
             setName("");
@@ -54,24 +63,52 @@ export default function DueCustomerModal({
             c.phone?.includes(search)
     );
 
-    const handleAddNew = () => {
+    // ============================
+    // ✅ Add new customer (async)
+    // ============================
+    const handleAddNew = async () => {
         if (!name.trim()) {
             Alert.alert("ত্রুটি", "নাম অবশ্যই দিতে হবে");
             return;
         }
-        const id = addCustomer({
-            name: name.trim(),
-            phone: phone.trim(),
-            address: address.trim(),
-            totalDue: 0,
-        });
-        onConfirm(id);
+
+        try {
+            setSaving(true);
+            const id = await addCustomer({
+                name: name.trim(),
+                phone: phone.trim(),
+                address: address.trim(),
+                totalDue: 0,
+            });
+
+            console.log("✅ New customer added:", id, name);
+
+            // Reset
+            setName("");
+            setPhone("");
+            setAddress("");
+            setShowAddForm(false);
+
+            // Callback
+            onConfirm(id);
+        } catch (e: any) {
+            console.error("❌ addCustomer error:", e);
+            Alert.alert("ত্রুটি", e?.message || "কাস্টমার যোগ করা যায়নি");
+        } finally {
+            setSaving(false);
+        }
     };
 
     return (
-        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <Modal
+            visible={visible}
+            transparent
+            animationType="slide"
+            onRequestClose={onClose}
+        >
             <View style={styles.overlay}>
                 <View style={styles.container}>
+                    {/* Header */}
                     <View style={styles.header}>
                         <Text style={styles.title}>বাকি কাস্টমার</Text>
                         <TouchableOpacity onPress={onClose}>
@@ -79,6 +116,7 @@ export default function DueCustomerModal({
                         </TouchableOpacity>
                     </View>
 
+                    {/* Due banner */}
                     <View style={styles.dueBanner}>
                         <Text style={styles.dueLabel}>বাকি থাকবে</Text>
                         <Text style={styles.dueValue}>৳ {dueAmount.toFixed(0)}</Text>
@@ -86,7 +124,7 @@ export default function DueCustomerModal({
 
                     {!showAddForm ? (
                         <>
-                            {/* সার্চ */}
+                            {/* Search */}
                             <View style={styles.searchBox}>
                                 <Ionicons name="search" size={18} color="#9ca3af" />
                                 <TextInput
@@ -98,7 +136,7 @@ export default function DueCustomerModal({
                                 />
                             </View>
 
-                            {/* লিস্ট */}
+                            {/* List */}
                             <FlatList
                                 data={filtered}
                                 keyExtractor={(i) => String(i.id)}
@@ -120,7 +158,11 @@ export default function DueCustomerModal({
                                                 </Text>
                                             )}
                                         </View>
-                                        <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                                        <Ionicons
+                                            name="chevron-forward"
+                                            size={20}
+                                            color="#9ca3af"
+                                        />
                                     </TouchableOpacity>
                                 )}
                                 ListEmptyComponent={
@@ -145,6 +187,7 @@ export default function DueCustomerModal({
                                 onChangeText={setName}
                                 placeholder="কাস্টমারের নাম"
                                 placeholderTextColor="#9ca3af"
+                                autoFocus
                             />
 
                             <Text style={styles.label}>ফোন</Text>
@@ -170,11 +213,21 @@ export default function DueCustomerModal({
                                 <TouchableOpacity
                                     style={styles.cancelBtn}
                                     onPress={() => setShowAddForm(false)}
+                                    disabled={saving}
                                 >
                                     <Text style={styles.cancelText}>বাতিল</Text>
                                 </TouchableOpacity>
-                                <TouchableOpacity style={styles.saveBtn} onPress={handleAddNew}>
-                                    <Text style={styles.saveText}>সেভ ও কনফার্ম</Text>
+
+                                <TouchableOpacity
+                                    style={[styles.saveBtn, saving && { opacity: 0.6 }]}
+                                    onPress={handleAddNew}
+                                    disabled={saving}
+                                >
+                                    {saving ? (
+                                        <ActivityIndicator color="#fff" size="small" />
+                                    ) : (
+                                        <Text style={styles.saveText}>সেভ ও কনফার্ম</Text>
+                                    )}
                                 </TouchableOpacity>
                             </View>
                         </>
@@ -205,6 +258,7 @@ const styles = StyleSheet.create({
         marginBottom: 12,
     },
     title: { fontSize: 18, fontWeight: "bold", color: "#0d9488" },
+
     dueBanner: {
         backgroundColor: "#fef3c7",
         padding: 12,
@@ -214,6 +268,7 @@ const styles = StyleSheet.create({
     },
     dueLabel: { fontSize: 12, color: "#92400e" },
     dueValue: { fontSize: 22, fontWeight: "800", color: "#d97706" },
+
     searchBox: {
         flexDirection: "row",
         alignItems: "center",
@@ -231,6 +286,7 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: "#111827",
     },
+
     custItem: {
         flexDirection: "row",
         alignItems: "center",
@@ -241,12 +297,19 @@ const styles = StyleSheet.create({
     },
     custName: { fontSize: 15, fontWeight: "700", color: "#111827" },
     custPhone: { fontSize: 12, color: "#6b7280", marginTop: 2 },
-    custDue: { fontSize: 12, color: "#d97706", marginTop: 2, fontWeight: "600" },
+    custDue: {
+        fontSize: 12,
+        color: "#d97706",
+        marginTop: 2,
+        fontWeight: "600",
+    },
+
     empty: {
         padding: 20,
         textAlign: "center",
         color: "#9ca3af",
     },
+
     addBtn: {
         flexDirection: "row",
         alignItems: "center",
@@ -258,6 +321,7 @@ const styles = StyleSheet.create({
         marginTop: 10,
     },
     addBtnText: { color: "#fff", fontWeight: "700" },
+
     label: {
         fontSize: 13,
         color: "#374151",
@@ -275,7 +339,13 @@ const styles = StyleSheet.create({
         backgroundColor: "#f9fafb",
         color: "#111827",
     },
-    row: { flexDirection: "row", gap: 8, marginTop: 16 },
+
+    row: {
+        flexDirection: "row",
+        gap: 8,
+        marginTop: 16,
+        marginBottom: 8,
+    },
     cancelBtn: {
         flex: 1,
         paddingVertical: 12,
@@ -290,6 +360,7 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         backgroundColor: "#0d9488",
         alignItems: "center",
+        justifyContent: "center",
     },
     saveText: { color: "#fff", fontWeight: "700" },
 });

@@ -7,7 +7,10 @@ export type Customer = {
     name: string;
     phone: string;
     address: string;
-    totalDue: number;
+    totalDue: number; // ✅ total_due + opening_balance (combined)
+    openingBalance?: number;
+    openingNote?: string;
+    openingDate?: string;
     updatedAt?: string;
     deleted?: number;
     deletedAt?: string | null;
@@ -17,7 +20,7 @@ export type Customer = {
 
 export type LedgerEntry = {
     id: number;
-    type: "sale" | "payment";
+    type: "opening" | "sale" | "payment";
     date: string;
     description: string;
     items?: {
@@ -42,16 +45,20 @@ export type LedgerSummary = {
     currentDue: number;
     totalSales: number;
     totalPaid: number;
+    openingBalance: number;
 };
 
 // ============================
-// Read
+// Read — Combined totalDue
 // ============================
 export function getAllCustomers(): Customer[] {
     return db.getAllSync<Customer>(
         `SELECT id, name, COALESCE(phone, '') as phone,
             COALESCE(address, '') as address,
-            COALESCE(total_due, 0) as totalDue,
+            (COALESCE(total_due, 0) + COALESCE(opening_balance, 0)) as totalDue,
+            COALESCE(opening_balance, 0) as openingBalance,
+            COALESCE(opening_note, '') as openingNote,
+            opening_date as openingDate,
             updated_at as updatedAt,
             COALESCE(deleted, 0) as deleted,
             sync_status as syncStatus,
@@ -64,16 +71,35 @@ export function getAllCustomers(): Customer[] {
 
 export function getAllCustomersForSync(): Customer[] {
     return db.getAllSync<Customer>(
-        `SELECT * FROM due_customers WHERE sync_status = 'pending' OR sync_status IS NULL`
+        `SELECT * FROM due_customers WHERE sync_status IS NULL OR sync_status != 'synced'`
     );
 }
 
 export function getCustomerById(id: number): Customer | null {
     const rows = db.getAllSync<Customer>(
-        `SELECT * FROM due_customers WHERE id = ? AND (deleted = 0 OR deleted IS NULL)`,
+        `SELECT id, name, COALESCE(phone, '') as phone,
+            COALESCE(address, '') as address,
+            (COALESCE(total_due, 0) + COALESCE(opening_balance, 0)) as totalDue,
+            COALESCE(opening_balance, 0) as openingBalance,
+            COALESCE(opening_note, '') as openingNote,
+            opening_date as openingDate,
+            updated_at as updatedAt,
+            COALESCE(deleted, 0) as deleted,
+            sync_status as syncStatus,
+            device_id as deviceId
+     FROM due_customers WHERE id = ? AND (deleted = 0 OR deleted IS NULL)`,
         [id]
     );
     return rows[0] ?? null;
+}
+
+// ✅ শুধু current due (opening ছাড়া)
+export function getCurrentDue(customerId: number): number {
+    const row = db.getAllSync<{ total_due: number }>(
+        `SELECT COALESCE(total_due, 0) as total_due FROM due_customers WHERE id = ?`,
+        [customerId]
+    )[0];
+    return row?.total_due ?? 0;
 }
 
 // ============================
@@ -116,7 +142,6 @@ export async function deleteCustomer(id: number): Promise<void> {
     const timestamp = nowISO();
 
     db.withTransactionSync(() => {
-        // Customer
         db.runSync(
             `UPDATE due_customers
        SET deleted = 1, deleted_at = ?, updated_at = ?,
@@ -125,7 +150,6 @@ export async function deleteCustomer(id: number): Promise<void> {
             [timestamp, timestamp, deviceId, id]
         );
 
-        // Also mark all payments deleted
         db.runSync(
             `UPDATE due_payments
        SET deleted = 1, deleted_at = ?, updated_at = ?,
@@ -137,7 +161,7 @@ export async function deleteCustomer(id: number): Promise<void> {
 }
 
 // ============================
-// Payment নেওয়া
+// Payment
 // ============================
 export async function payDue(
     customerId: number,
@@ -150,7 +174,6 @@ export async function payDue(
     const timestamp = nowISO();
 
     db.withTransactionSync(() => {
-        // Payment insert
         db.runSync(
             `INSERT INTO due_payments
        (customer_id, amount, note, updated_at, sync_status, device_id)
@@ -158,7 +181,7 @@ export async function payDue(
             [customerId, amount, note || "ক্যাশ পেমেন্ট", timestamp, deviceId]
         );
 
-        // Due update
+        // ✅ শুধু total_due কমাও, opening_balance অটুট
         db.runSync(
             `UPDATE due_customers
        SET total_due = MAX(0, total_due - ?),
@@ -170,9 +193,131 @@ export async function payDue(
 }
 
 // ============================
-// Ledger
+// 🆕 Opening Balance
+// ============================
+export async function setOpeningBalance(
+    customerId: number,
+    amount: number,
+    note = "পুরনো বাকি",
+    date?: string
+): Promise<void> {
+    const deviceId = await getDeviceId();
+    const timestamp = nowISO();
+    const openingDate = date || timestamp;
+
+    db.runSync(
+        `UPDATE due_customers
+     SET opening_balance = ?,
+         opening_note = ?,
+         opening_date = ?,
+         updated_at = ?,
+         sync_status = 'pending',
+         device_id = ?
+     WHERE id = ?`,
+        [amount, note, openingDate, timestamp, deviceId, customerId]
+    );
+}
+
+// ============================
+// 🆕 Old Sale
+// ============================
+export async function addOldSale(
+    customerId: number,
+    items: { name: string; qty: number; price: number; subtotal: number }[],
+    total: number,
+    paid: number,
+    date: string,
+    note = ""
+): Promise<number> {
+    const deviceId = await getDeviceId();
+    const timestamp = nowISO();
+    const dueAmount = Math.max(total - paid, 0);
+
+    let saleId = 0;
+
+    db.withTransactionSync(() => {
+        const r = db.runSync(
+            `INSERT INTO sales
+       (total, discount, vat, paid, change, payment_method,
+        customer_id, due_amount, is_due,
+        updated_at, created_at, sync_status, device_id)
+       VALUES (?, 0, 0, ?, 0, 'cash', ?, ?, ?, ?, ?, 'pending', ?)`,
+            [
+                total,
+                paid,
+                customerId,
+                dueAmount,
+                dueAmount > 0 ? 1 : 0,
+                timestamp,
+                date,
+                deviceId,
+            ]
+        );
+        saleId = r.lastInsertRowId;
+
+        for (const item of items) {
+            db.runSync(
+                `INSERT INTO sale_items (sale_id, medicine_id, name, price, qty, subtotal)
+         VALUES (?, 0, ?, ?, ?, ?)`,
+                [saleId, item.name, item.price, item.qty, item.subtotal]
+            );
+        }
+
+        if (dueAmount > 0) {
+            db.runSync(
+                `UPDATE due_customers
+         SET total_due = total_due + ?,
+             updated_at = ?, sync_status = 'pending', device_id = ?
+         WHERE id = ?`,
+                [dueAmount, timestamp, deviceId, customerId]
+            );
+        }
+    });
+
+    return saleId;
+}
+
+// ============================
+// 🆕 Old Payment
+// ============================
+export async function addOldPayment(
+    customerId: number,
+    amount: number,
+    date: string,
+    note = "পুরনো জমা"
+): Promise<void> {
+    const deviceId = await getDeviceId();
+    const timestamp = nowISO();
+
+    db.withTransactionSync(() => {
+        db.runSync(
+            `INSERT INTO due_payments
+       (customer_id, amount, note, updated_at, created_at, sync_status, device_id)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+            [customerId, amount, note, timestamp, date, deviceId]
+        );
+
+        db.runSync(
+            `UPDATE due_customers
+       SET total_due = MAX(0, total_due - ?),
+           updated_at = ?, sync_status = 'pending', device_id = ?
+       WHERE id = ?`,
+            [amount, timestamp, deviceId, customerId]
+        );
+    });
+}
+
+// ============================
+// Ledger with opening balance
 // ============================
 export function getCustomerLedger(customerId: number): LedgerEntry[] {
+    const customer = getCustomerById(customerId);
+    if (!customer) return [];
+
+    const openingBalance = customer.openingBalance || 0;
+    const openingDate = customer.openingDate || "";
+    const openingNote = customer.openingNote || "পুরনো বাকি";
+
     const sales = db.getAllSync<{
         id: number;
         created_at: string;
@@ -205,7 +350,7 @@ export function getCustomerLedger(customerId: number): LedgerEntry[] {
     );
 
     type Combined = {
-        kind: "sale" | "payment";
+        kind: "opening" | "sale" | "payment";
         date: string;
         debit: number;
         credit: number;
@@ -213,9 +358,26 @@ export function getCustomerLedger(customerId: number): LedgerEntry[] {
         total?: number;
         paid?: number;
         dueAmount?: number;
+        note?: string;
     };
 
     const combined: Combined[] = [];
+
+    // Opening Balance entry
+    if (openingBalance > 0) {
+        combined.push({
+            kind: "opening",
+            date:
+                openingDate ||
+                sales[0]?.created_at ||
+                payments[0]?.created_at ||
+                new Date().toISOString(),
+            debit: openingBalance,
+            credit: 0,
+            refId: 0,
+            note: openingNote,
+        });
+    }
 
     for (const s of sales) {
         combined.push({
@@ -237,6 +399,7 @@ export function getCustomerLedger(customerId: number): LedgerEntry[] {
             debit: 0,
             credit: p.amount,
             refId: p.id,
+            note: p.note,
         });
     }
 
@@ -245,6 +408,18 @@ export function getCustomerLedger(customerId: number): LedgerEntry[] {
     let balance = 0;
     return combined.map((e) => {
         balance += e.debit - e.credit;
+
+        if (e.kind === "opening") {
+            return {
+                id: 0,
+                type: "opening",
+                date: e.date,
+                description: e.note || "পুরনো বাকি",
+                debit: e.debit,
+                credit: 0,
+                balance,
+            };
+        }
 
         if (e.kind === "sale") {
             const items = db.getAllSync<{
@@ -267,7 +442,7 @@ export function getCustomerLedger(customerId: number): LedgerEntry[] {
 
             return {
                 id: e.refId,
-                type: "sale" as const,
+                type: "sale",
                 date: e.date,
                 description,
                 items,
@@ -278,25 +453,23 @@ export function getCustomerLedger(customerId: number): LedgerEntry[] {
                 credit: 0,
                 balance,
             };
-        } else {
-            const pay = db.getAllSync<{ note: string }>(
-                `SELECT COALESCE(note, '') as note FROM due_payments WHERE id = ?`,
-                [e.refId]
-            );
-
-            return {
-                id: e.refId,
-                type: "payment" as const,
-                date: e.date,
-                description: pay[0]?.note || "ক্যাশ পেমেন্ট",
-                debit: 0,
-                credit: e.credit,
-                balance,
-            };
         }
+
+        return {
+            id: e.refId,
+            type: "payment",
+            date: e.date,
+            description: e.note || "ক্যাশ পেমেন্ট",
+            debit: 0,
+            credit: e.credit,
+            balance,
+        };
     });
 }
 
+// ============================
+// Ledger Summary
+// ============================
 export function getCustomerLedgerSummary(
     customerId: number
 ): LedgerSummary | null {
@@ -321,19 +494,8 @@ export function getCustomerLedgerSummary(
         currentDue: customer.totalDue,
         totalSales,
         totalPaid,
+        openingBalance: customer.openingBalance || 0,
     };
-}
-
-// ============================
-// Sync mark
-// ============================
-export function markCustomersSynced(ids: number[]): void {
-    if (ids.length === 0) return;
-    const placeholders = ids.map(() => "?").join(",");
-    db.runSync(
-        `UPDATE due_customers SET sync_status = 'synced' WHERE id IN (${placeholders})`,
-        ids
-    );
 }
 
 // ============================

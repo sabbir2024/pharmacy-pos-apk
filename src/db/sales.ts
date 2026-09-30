@@ -19,9 +19,6 @@ export type SalePayload = {
     customerId?: number;
 };
 
-// ============================
-// Save Sale
-// ============================
 export async function saveSale(payload: SalePayload): Promise<number> {
     const deviceId = await getDeviceId();
     const timestamp = nowISO();
@@ -38,7 +35,7 @@ export async function saveSale(payload: SalePayload): Promise<number> {
     let saleId = 0;
 
     db.withTransactionSync(() => {
-        // Sale insert
+        // ১. Sale insert
         const r = db.runSync(
             `INSERT INTO sales
         (total, discount, vat, paid, change, payment_method,
@@ -61,7 +58,7 @@ export async function saveSale(payload: SalePayload): Promise<number> {
         );
         saleId = r.lastInsertRowId;
 
-        // Items + Stock কমাও
+        // ২. Items + Stock কমাও
         for (const item of payload.items) {
             db.runSync(
                 `INSERT INTO sale_items (sale_id, medicine_id, name, price, qty, subtotal)
@@ -76,16 +73,42 @@ export async function saveSale(payload: SalePayload): Promise<number> {
                 ]
             );
 
-            db.runSync(
-                `UPDATE medicines
-         SET stock = MAX(0, stock - ?),
-             updated_at = ?, sync_status = 'pending', device_id = ?
-         WHERE id = ?`,
-                [item.qty, timestamp, deviceId, item.medicineId]
-            );
+            // ✅ Stock কমাও (product exist করলে)
+            const checkProduct = db.getAllSync<{ c: number }>(
+                `SELECT COUNT(*) as c FROM medicines WHERE id = ?`,
+                [item.medicineId]
+            )[0];
+
+            if (checkProduct && checkProduct.c > 0) {
+                db.runSync(
+                    `UPDATE medicines
+           SET stock = MAX(0, stock - ?),
+               updated_at = ?, sync_status = 'pending', device_id = ?
+           WHERE id = ?`,
+                    [item.qty, timestamp, deviceId, item.medicineId]
+                );
+            } else {
+                // 🆕 Product DB তে নেই → auto-create
+                db.runSync(
+                    `INSERT INTO medicines
+            (name, company, price, stock, unit, cost_price, expiry, barcode,
+             pcs_per_unit, updated_at, sync_status, device_id)
+           VALUES (?, '', ?, 0, ?, 0, '', '',
+                   1, ?, 'pending', ?)`,
+                    [
+                        item.name,
+                        item.price,
+                        item.unit || "pcs",
+                        timestamp,
+                        deviceId,
+                    ]
+                );
+
+                console.log(`⚠️ Auto-created product: ${item.name}`);
+            }
         }
 
-        // Due customer update
+        // ৩. Due customer update
         if (isDue && payload.customerId) {
             db.runSync(
                 `UPDATE due_customers
@@ -100,9 +123,6 @@ export async function saveSale(payload: SalePayload): Promise<number> {
     return saleId;
 }
 
-// ============================
-// Read
-// ============================
 export function getAllSales() {
     return db.getAllSync<any>(
         `SELECT * FROM sales
@@ -128,14 +148,5 @@ export function getSaleItems(saleId: number) {
     return db.getAllSync<any>(
         `SELECT * FROM sale_items WHERE sale_id = ?`,
         [saleId]
-    );
-}
-
-export function markSalesSynced(ids: number[]): void {
-    if (ids.length === 0) return;
-    const placeholders = ids.map(() => "?").join(",");
-    db.runSync(
-        `UPDATE sales SET sync_status = 'synced' WHERE id IN (${placeholders})`,
-        ids
     );
 }

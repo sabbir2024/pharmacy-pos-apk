@@ -149,8 +149,8 @@ export function getLowStockItems(): StockItem[] {
             COALESCE(expiry, '') as expiry
      FROM medicines
      WHERE stock <= 10
-     ORDER BY stock ASC
-     LIMIT 20`
+       AND (deleted = 0 OR deleted IS NULL)
+     ORDER BY stock ASC`
     );
 }
 

@@ -1,7 +1,16 @@
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { useRef } from "react";
+import {
+    KeyboardAvoidingView,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
+} from "react-native";
+import { formatTk } from "../../../utils/format";
 
 type Props = {
-    subtotal: number;         // 👈 এটা থাকতে হবে
+    subtotal: number;
     discount: number;
     vat: number;
     onChangeDiscount: (n: number) => void;
@@ -16,38 +25,52 @@ export default function BillSummary({
     onChangeVat,
 }: Props) {
     const total = subtotal - discount + vat;
+    const vatRef = useRef<TextInput>(null);
 
     return (
-        <View style={styles.box}>
-            <Row label="সাবটোটাল" value={`৳ ${subtotal.toFixed(0)}`} />
+        <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 100 : 0}
+        >
+            <View style={styles.box}>
+                <Row label="সাবটোটাল" value={formatTk(subtotal)} />
 
-            <View style={styles.editRow}>
-                <Text style={styles.editLabel}>ডিসকাউন্ট (৳)</Text>
-                <TextInput
-                    style={styles.editInput}
-                    value={String(discount)}
-                    keyboardType="numeric"
-                    onChangeText={(t) => onChangeDiscount(parseFloat(t) || 0)}
-                />
+                <View style={styles.editRow}>
+                    <Text style={styles.editLabel}>ডিসকাউন্ট (৳)</Text>
+                    <TextInput
+                        style={styles.editInput}
+                        value={discount === 0 ? "" : String(discount)}
+                        keyboardType="numeric"
+                        placeholder="0"
+                        placeholderTextColor="#9ca3af"
+                        onChangeText={(t) => onChangeDiscount(parseFloat(t) || 0)}
+                        returnKeyType="next"
+                        onSubmitEditing={() => vatRef.current?.focus()}
+                    />
+                </View>
+
+                <View style={styles.editRow}>
+                    <Text style={styles.editLabel}>VAT (৳)</Text>
+                    <TextInput
+                        ref={vatRef}
+                        style={styles.editInput}
+                        value={vat === 0 ? "" : String(vat)}
+                        keyboardType="numeric"
+                        placeholder="0"
+                        placeholderTextColor="#9ca3af"
+                        onChangeText={(t) => onChangeVat(parseFloat(t) || 0)}
+                        returnKeyType="done"
+                    />
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>মোট</Text>
+                    <Text style={styles.totalValue}>{formatTk(total)}</Text>
+                </View>
             </View>
-
-            <View style={styles.editRow}>
-                <Text style={styles.editLabel}>VAT (৳)</Text>
-                <TextInput
-                    style={styles.editInput}
-                    value={String(vat)}
-                    keyboardType="numeric"
-                    onChangeText={(t) => onChangeVat(parseFloat(t) || 0)}
-                />
-            </View>
-
-            <View style={styles.divider} />
-
-            <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>মোট</Text>
-                <Text style={styles.totalValue}>৳ {total.toFixed(0)}</Text>
-            </View>
-        </View>
+        </KeyboardAvoidingView>
     );
 }
 
@@ -67,7 +90,6 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         borderWidth: 1,
         borderColor: "#f1f5f9",
-        marginTop: 10,
     },
     row: {
         flexDirection: "row",

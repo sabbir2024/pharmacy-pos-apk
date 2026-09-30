@@ -28,9 +28,6 @@ export default function LoginScreen() {
     const [showPass, setShowPass] = useState(false);
     const [loading, setLoading] = useState(false);
 
-    // ============================
-    // Submit (Login / Register)
-    // ============================
     const handleSubmit = async () => {
         if (!email.trim() || !password.trim()) {
             Alert.alert("ত্রুটি", "Email ও password দিন");
@@ -38,7 +35,7 @@ export default function LoginScreen() {
         }
 
         if (password.length < 6) {
-            Alert.alert("ত্রুটি", "Password কমপক্ষে ৬ অক্ষর হতে হবে");
+            Alert.alert("ত্রুটি", "Password কমপক্ষে ৬ অক্ষর");
             return;
         }
 
@@ -49,6 +46,7 @@ export default function LoginScreen() {
 
         try {
             setLoading(true);
+            console.log("🎯 handleSubmit:", mode, email);
 
             const result =
                 mode === "login"
@@ -60,16 +58,13 @@ export default function LoginScreen() {
                         shopName.trim()
                     );
 
-            // ============================
-            // Register সফল — pending handling
-            // ============================
+            console.log("🎯 Result:", result);
+
             if (mode === "register" && result.success) {
                 if (result.pending) {
-                    // ⏳ Pending — waiting screen এ পাঠাও
                     Alert.alert(
                         "⏳ অপেক্ষা করুন",
-                        result.message ||
-                        "আপনার অ্যাকাউন্ট admin approval এর অপেক্ষায় আছে। Approve হলে login করতে পারবেন।",
+                        result.message || "Admin approve করলে login করতে পারবেন।",
                         [
                             {
                                 text: "ঠিক আছে",
@@ -82,14 +77,16 @@ export default function LoginScreen() {
                         ]
                     );
                 } else if (result.user) {
-                    // ✅ First user (admin) — সরাসরি ঢুকাও
                     Alert.alert(
                         "✅ স্বাগতম!",
-                        `Admin অ্যাকাউন্ট তৈরি হয়েছে।\nস্বাগতম ${result.user.name || result.user.email}!`,
+                        `Admin অ্যাকাউন্ট তৈরি হয়েছে।`,
                         [
                             {
                                 text: "চালিয়ে যান",
-                                onPress: () => router.replace("/(tabs)"),
+                                onPress: () => {
+                                    console.log("🚀 Navigating to tabs");
+                                    router.replace("/(tabs)");
+                                },
                             },
                         ]
                     );
@@ -97,33 +94,30 @@ export default function LoginScreen() {
                 return;
             }
 
-            // ============================
-            // Login সফল
-            // ============================
             if (mode === "login" && result.success && result.user) {
+                console.log("✅ Login success — showing alert");
+
                 Alert.alert(
                     "✅ সফল",
                     `স্বাগতম ${result.user.name || result.user.email}!`,
                     [
                         {
                             text: "ঠিক আছে",
-                            onPress: () => router.replace("/(tabs)"),
+                            onPress: () => {
+                                console.log("🚀 Navigating to /(tabs)");
+                                router.replace("/(tabs)");
+                            },
                         },
                     ]
                 );
                 return;
             }
 
-            // ============================
-            // Login ব্যর্থ — status check
-            // ============================
             if (mode === "login" && !result.success) {
-                // Pending
-                if (result.userStatus === "pending" || result.error?.includes("approve")) {
+                if (result.userStatus === "pending") {
                     Alert.alert(
                         "⏳ Pending",
-                        result.error ||
-                        "আপনার অ্যাকাউন্ট এখনো admin approve করেনি।",
+                        result.error || "Admin approve করেনি",
                         [
                             { text: "বাতিল", style: "cancel" },
                             {
@@ -139,33 +133,6 @@ export default function LoginScreen() {
                     return;
                 }
 
-                // Rejected
-                if (
-                    result.userStatus === "rejected" ||
-                    result.error?.toLowerCase().includes("reject")
-                ) {
-                    Alert.alert(
-                        "❌ Rejected",
-                        result.error ||
-                        "আপনার অ্যাকাউন্ট admin reject করেছে।"
-                    );
-                    return;
-                }
-
-                // Blocked
-                if (
-                    result.userStatus === "blocked" ||
-                    result.error?.toLowerCase().includes("block")
-                ) {
-                    Alert.alert(
-                        "🚫 Blocked",
-                        result.error ||
-                        "আপনার অ্যাকাউন্ট block করা হয়েছে।"
-                    );
-                    return;
-                }
-
-                // সাধারণ error (network / wrong password)
                 Alert.alert(
                     "❌ ব্যর্থ",
                     result.error || "ইন্টারনেট সংযোগ চেক করুন"
@@ -173,23 +140,19 @@ export default function LoginScreen() {
                 return;
             }
 
-            // অন্য যেকোনো error
             Alert.alert("❌ ব্যর্থ", result.error || "কিছু ভুল হয়েছে");
         } catch (e: any) {
-            console.error("Auth error:", e);
+            console.error("❌ Login handleSubmit error:", e);
             Alert.alert("ত্রুটি", e?.message || "কিছু ভুল হয়েছে");
         } finally {
             setLoading(false);
         }
     };
 
-    // ============================
-    // Skip (Offline mode)
-    // ============================
     const handleSkip = () => {
         Alert.alert(
             "স্কিপ করবেন?",
-            "স্কিপ করলে ক্লাউড সিঙ্ক বন্ধ থাকবে। ডেটা শুধু এই ফোনে থাকবে। পরে Settings → ক্লাউড সিঙ্ক থেকে লগইন করতে পারবেন।",
+            "স্কিপ করলে ক্লাউড সিঙ্ক বন্ধ থাকবে। ডেটা শুধু এই ফোনে থাকবে।",
             [
                 { text: "বাতিল", style: "cancel" },
                 {
@@ -210,7 +173,6 @@ export default function LoginScreen() {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
             >
-                {/* Header / Logo */}
                 <View style={styles.header}>
                     <View style={styles.logoBox}>
                         <Ionicons name="medkit" size={42} color="#0d9488" />
@@ -223,7 +185,6 @@ export default function LoginScreen() {
                     </Text>
                 </View>
 
-                {/* Mode Toggle */}
                 <View style={styles.modeSwitch}>
                     <TouchableOpacity
                         style={[
@@ -231,7 +192,6 @@ export default function LoginScreen() {
                             mode === "login" && styles.modeBtnActive,
                         ]}
                         onPress={() => setMode("login")}
-                        activeOpacity={0.8}
                     >
                         <Ionicons
                             name="log-in-outline"
@@ -254,7 +214,6 @@ export default function LoginScreen() {
                             mode === "register" && styles.modeBtnActive,
                         ]}
                         onPress={() => setMode("register")}
-                        activeOpacity={0.8}
                     >
                         <Ionicons
                             name="person-add-outline"
@@ -272,7 +231,6 @@ export default function LoginScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {/* Form */}
                 <View style={styles.form}>
                     {mode === "register" && (
                         <>
@@ -283,7 +241,6 @@ export default function LoginScreen() {
                                     onChangeText={setName}
                                     placeholder="যেমন: সাব্বির আহমেদ"
                                     placeholderTextColor="#9ca3af"
-                                    autoCapitalize="words"
                                 />
                             </Field>
 
@@ -294,7 +251,6 @@ export default function LoginScreen() {
                                     onChangeText={setShopName}
                                     placeholder="যেমন: সেবা ফার্মেসি"
                                     placeholderTextColor="#9ca3af"
-                                    autoCapitalize="words"
                                 />
                             </Field>
                         </>
@@ -336,12 +292,10 @@ export default function LoginScreen() {
                         </View>
                     </Field>
 
-                    {/* Submit Button */}
                     <TouchableOpacity
                         style={[styles.submitBtn, loading && { opacity: 0.6 }]}
                         onPress={handleSubmit}
                         disabled={loading}
-                        activeOpacity={0.8}
                     >
                         {loading ? (
                             <ActivityIndicator color="#fff" />
@@ -363,7 +317,6 @@ export default function LoginScreen() {
                         )}
                     </TouchableOpacity>
 
-                    {/* Skip Button */}
                     <TouchableOpacity
                         style={styles.skipBtn}
                         onPress={handleSkip}
@@ -374,7 +327,6 @@ export default function LoginScreen() {
                         </Text>
                     </TouchableOpacity>
 
-                    {/* Info Box */}
                     <View style={styles.infoBox}>
                         <Ionicons
                             name="information-circle-outline"
@@ -383,8 +335,8 @@ export default function LoginScreen() {
                         />
                         <Text style={styles.infoText}>
                             {mode === "register"
-                                ? "রেজিস্টার করার পর admin approve করলে আপনি লগইন করতে পারবেন। অ্যাপ্রুভালের আগে আপনি অপেক্ষা স্ক্রিনে দেখতে পাবেন।"
-                                : "স্কিপ করলে ডেটা শুধু এই ফোনে থাকবে। পরে Settings → ক্লাউড সিঙ্ক থেকে লগইন করতে পারবেন।"}
+                                ? "রেজিস্টার করার পর admin approve করলে login করতে পারবেন।"
+                                : "স্কিপ করলে ডেটা শুধু এই ফোনে থাকবে।"}
                         </Text>
                     </View>
                 </View>
@@ -393,9 +345,6 @@ export default function LoginScreen() {
     );
 }
 
-// ============================
-// Field Helper
-// ============================
 function Field({
     label,
     children,
@@ -411,9 +360,6 @@ function Field({
     );
 }
 
-// ============================
-// Styles
-// ============================
 const styles = StyleSheet.create({
     container: {
         flexGrow: 1,
@@ -421,8 +367,6 @@ const styles = StyleSheet.create({
         backgroundColor: "#f9fafb",
         justifyContent: "center",
     },
-
-    // Header
     header: { alignItems: "center", marginBottom: 24 },
     logoBox: {
         width: 90,
@@ -434,9 +378,12 @@ const styles = StyleSheet.create({
         marginBottom: 12,
     },
     title: { fontSize: 24, fontWeight: "800", color: "#0d9488" },
-    subtitle: { fontSize: 13, color: "#6b7280", marginTop: 4, textAlign: "center" },
-
-    // Mode toggle
+    subtitle: {
+        fontSize: 13,
+        color: "#6b7280",
+        marginTop: 4,
+        textAlign: "center",
+    },
     modeSwitch: {
         flexDirection: "row",
         backgroundColor: "#fff",
@@ -458,8 +405,6 @@ const styles = StyleSheet.create({
     modeBtnActive: { backgroundColor: "#0d9488" },
     modeText: { fontSize: 14, fontWeight: "700", color: "#6b7280" },
     modeTextActive: { color: "#fff" },
-
-    // Form
     form: { gap: 14 },
     field: { marginBottom: 4 },
     label: {
@@ -478,8 +423,6 @@ const styles = StyleSheet.create({
         backgroundColor: "#fff",
         color: "#111827",
     },
-
-    // Password
     passWrap: {
         flexDirection: "row",
         alignItems: "center",
@@ -497,8 +440,6 @@ const styles = StyleSheet.create({
         color: "#111827",
     },
     eyeBtn: { padding: 6 },
-
-    // Submit
     submitBtn: {
         flexDirection: "row",
         alignItems: "center",
@@ -510,8 +451,6 @@ const styles = StyleSheet.create({
         marginTop: 8,
     },
     submitText: { color: "#fff", fontWeight: "800", fontSize: 15 },
-
-    // Skip
     skipBtn: {
         alignItems: "center",
         paddingVertical: 12,
@@ -523,8 +462,6 @@ const styles = StyleSheet.create({
         fontSize: 13,
         textDecorationLine: "underline",
     },
-
-    // Info
     infoBox: {
         flexDirection: "row",
         gap: 6,

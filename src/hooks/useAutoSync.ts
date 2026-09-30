@@ -1,36 +1,46 @@
-import { fullSync, isLoggedIn } from "@/db/sync";
+import { fullSync } from "@/db/sync";
 import { useEffect, useRef } from "react";
 import { AppState, AppStateStatus } from "react-native";
 
-export function useAutoSync(intervalMs = 5 * 60 * 1000) {
+type Options = {
+    enabled?: boolean;
+    intervalMs?: number;
+};
+
+export function useAutoSync({
+    enabled = true,
+    intervalMs = 5 * 60 * 1000,
+}: Options = {}) {
     const syncInProgress = useRef(false);
+    const enabledRef = useRef(enabled);
 
     useEffect(() => {
+        enabledRef.current = enabled;
+    }, [enabled]);
+
+    useEffect(() => {
+        if (!enabled) return;
+
         let timer: ReturnType<typeof setInterval>;
 
         const trySync = async () => {
             if (syncInProgress.current) return;
-
-            const loggedIn = await isLoggedIn();
-            if (!loggedIn) return;
+            if (!enabledRef.current) return;
 
             try {
                 syncInProgress.current = true;
                 const result = await fullSync();
-
                 if (result.success) {
                     console.log("✅ Auto-sync done");
-                } else {
-                    console.log("⚠️ Auto-sync:", result.error);
                 }
             } catch (e) {
-                console.log("❌ Auto-sync error:", e);
+                // Silent fail
             } finally {
                 syncInProgress.current = false;
             }
         };
 
-        const initialTimeout = setTimeout(trySync, 3000);
+        const initialTimeout = setTimeout(trySync, 5000);
         timer = setInterval(trySync, intervalMs);
 
         const handleAppState = (state: AppStateStatus) => {
@@ -43,5 +53,5 @@ export function useAutoSync(intervalMs = 5 * 60 * 1000) {
             clearInterval(timer);
             sub.remove();
         };
-    }, [intervalMs]);
+    }, [enabled, intervalMs]);
 }

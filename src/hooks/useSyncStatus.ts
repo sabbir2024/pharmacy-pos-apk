@@ -1,7 +1,7 @@
 import {
     getSyncStatus,
     type AuthUser,
-    type SyncStatus
+    type SyncStatus,
 } from "@/db/sync";
 import { useCallback, useEffect, useState } from "react";
 import { AppState, AppStateStatus } from "react-native";
@@ -22,12 +22,18 @@ export function useSyncStatus(): UseSyncStatusReturn {
 
     const refresh = useCallback(async () => {
         try {
+            console.log("🔄 useSyncStatus.refresh");
+
             const status: SyncStatus = await getSyncStatus();
+
+            console.log("   status.isLoggedIn:", status.isLoggedIn);
+            console.log("   status.user:", status.user?.email);
+
             setIsLoggedIn(status.isLoggedIn);
             setUser(status.user);
             setLastSyncAt(status.lastSyncAt);
-        } catch (e) {
-            console.error("useSyncStatus error:", e);
+        } catch (e: any) {
+            console.error("❌ useSyncStatus.refresh error:", e?.message);
             setIsLoggedIn(false);
             setUser(null);
             setLastSyncAt(null);
@@ -36,15 +42,16 @@ export function useSyncStatus(): UseSyncStatusReturn {
         }
     }, []);
 
-    // প্রথমবার load
+    // Initial load
     useEffect(() => {
         refresh();
     }, [refresh]);
 
-    // অ্যাপ ফোরগ্রাউন্ডে এলে refresh
+    // AppState listener
     useEffect(() => {
         const handleAppState = (state: AppStateStatus) => {
             if (state === "active") {
+                console.log("📱 App active → refresh status");
                 refresh();
             }
         };

@@ -9,21 +9,34 @@ export function useUserRole() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (authLoading) return;
+        console.log("🔍 useUserRole effect:");
+        console.log("   authLoading:", authLoading);
+        console.log("   isLoggedIn:", isLoggedIn);
+        console.log("   user email:", user?.email);
+        console.log("   user role:", (user as any)?.role);
 
-        if (!isLoggedIn || !user) {
+        if (authLoading) {
+            console.log("   ⏳ Still loading auth");
+            return;
+        }
+
+        if (!isLoggedIn || !user || !user.email) {
+            console.log("   ❌ No valid user → role none");
             setRole("none");
             setLoading(false);
             return;
         }
 
-        // user এর role চেক
         const userRole = (user as any).role;
+
         if (userRole === "admin") {
             setRole("admin");
+            console.log("   ✅ role = admin");
         } else {
             setRole("user");
+            console.log("   ✅ role = user");
         }
+
         setLoading(false);
     }, [user, isLoggedIn, authLoading]);
 

@@ -12,7 +12,11 @@ import {
     View,
 } from "react-native";
 
-import { fullSync, logout } from "@/db/sync";
+import {
+    fullSync,
+    getPendingCount,
+    logout,
+} from "@/db/sync";
 import { useSyncStatus } from "@/hooks/useSyncStatus";
 import { formatDateTime } from "@/utils/format";
 
@@ -20,23 +24,39 @@ const AUTO_SYNC_KEY = "@pharmacy_auto_sync";
 
 export default function SyncSection() {
     const router = useRouter();
-    const { isLoggedIn, user, lastSyncAt, refresh, loading } = useSyncStatus();
+    const { isLoggedIn, user, lastSyncAt, refresh, loading } =
+        useSyncStatus();
 
     const [syncing, setSyncing] = useState(false);
     const [autoSync, setAutoSync] = useState(true);
+    const [pending, setPending] = useState({
+        medicines: 0,
+        sales: 0,
+        customers: 0,
+    });
 
-    // Auto sync preference load
+    // Auto sync preference
     React.useEffect(() => {
         AsyncStorage.getItem(AUTO_SYNC_KEY).then((val) => {
             if (val !== null) setAutoSync(val === "true");
         });
     }, []);
 
+    // Pending count refresh
+    React.useEffect(() => {
+        if (isLoggedIn) {
+            setPending(getPendingCount());
+        }
+    }, [isLoggedIn, syncing]);
+
     const toggleAutoSync = async (value: boolean) => {
         setAutoSync(value);
         await AsyncStorage.setItem(AUTO_SYNC_KEY, value ? "true" : "false");
     };
 
+    // ============================
+    // ✅ Sync Now
+    // ============================
     const handleSync = async () => {
         if (!isLoggedIn) {
             Alert.alert(
@@ -52,15 +72,32 @@ export default function SyncSection() {
 
         try {
             setSyncing(true);
+
+            // ✅ Pending count দেখাও
+            const before = getPendingCount();
+            console.log("📊 Pending before sync:", before);
+
             const result = await fullSync();
+
+            console.log("📊 Sync result:", result);
 
             if (result.success) {
                 await refresh();
-                const pushed = result.push?.synced;
+                setPending(getPendingCount());
+
+                const pushSynced = result.push?.synced;
+
                 Alert.alert(
                     "✅ সিঙ্ক সফল",
-                    pushed
-                        ? `পাঠানো: ঔষধ ${pushed.medicines}, বিক্রয় ${pushed.sales}, কাস্টমার ${pushed.customers}`
+                    pushSynced
+                        ? `পাঠানো:\n` +
+                        `  ঔষধ: ${pushSynced.medicines || 0}\n` +
+                        `  বিক্রয়: ${pushSynced.sales || 0}\n` +
+                        `  কাস্টমার: ${pushSynced.customers || 0}\n\n` +
+                        `আনা:\n` +
+                        `  ঔষধ: ${result.pull?.received?.medicines || 0}\n` +
+                        `  বিক্রয়: ${result.pull?.received?.sales || 0}\n` +
+                        `  কাস্টমার: ${result.pull?.received?.customers || 0}`
                         : "সব ডেটা সিঙ্ক হয়েছে"
                 );
             } else {
@@ -70,6 +107,7 @@ export default function SyncSection() {
                 );
             }
         } catch (e: any) {
+            console.error("❌ handleSync error:", e);
             Alert.alert("ত্রুটি", e?.message || "সিঙ্ক করা যায়নি");
         } finally {
             setSyncing(false);
@@ -103,6 +141,9 @@ export default function SyncSection() {
         }
     };
 
+    const totalPending =
+        pending.medicines + pending.sales + pending.customers;
+
     if (loading) {
         return (
             <View style={styles.loadingBox}>
@@ -115,7 +156,7 @@ export default function SyncSection() {
         <View style={styles.section}>
             <Text style={styles.sectionTitle}>☁️ ক্লাউড সিঙ্ক</Text>
 
-            {/* Status Card */}
+            {/* Status */}
             <View
                 style={[
                     styles.statusCard,
@@ -149,9 +190,7 @@ export default function SyncSection() {
                         {isLoggedIn ? "সংযুক্ত" : "লগইন করা নেই"}
                     </Text>
                     <Text style={styles.statusSub}>
-                        {isLoggedIn && user
-                            ? `${user.email}`
-                            : "সিঙ্ক করতে লগইন করুন"}
+                        {isLoggedIn && user ? user.email : "সিঙ্ক করতে লগইন করুন"}
                     </Text>
                     {isLoggedIn && (
                         <Text style={styles.lastSync}>
@@ -161,7 +200,40 @@ export default function SyncSection() {
                 </View>
             </View>
 
-            {/* Login বাটন */}
+            {/* Pending indicator */}
+            {isLoggedIn && totalPending > 0 && (
+                <View style={styles.pendingBox}>
+                    <Ionicons name="time-outline" size={16} color="#d97706" />
+                    <Text style={styles.pendingText}>
+                        {totalPending}টি আইটেম সিঙ্ক হয়নি
+                    </Text>
+                    <View style={styles.pendingChips}>
+                        {pending.medicines > 0 && (
+                            <View style={styles.chip}>
+                                <Text style={styles.chipText}>
+                                    ঔষধ {pending.medicines}
+                                </Text>
+                            </View>
+                        )}
+                        {pending.sales > 0 && (
+                            <View style={styles.chip}>
+                                <Text style={styles.chipText}>
+                                    বিক্রয় {pending.sales}
+                                </Text>
+                            </View>
+                        )}
+                        {pending.customers > 0 && (
+                            <View style={styles.chip}>
+                                <Text style={styles.chipText}>
+                                    কাস্টমার {pending.customers}
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+                </View>
+            )}
+
+            {/* Login */}
             {!isLoggedIn && (
                 <TouchableOpacity
                     style={styles.loginBtn}
@@ -176,16 +248,27 @@ export default function SyncSection() {
             {isLoggedIn && (
                 <>
                     <TouchableOpacity
-                        style={[styles.syncBtn, syncing && { opacity: 0.6 }]}
+                        style={[
+                            styles.syncBtn,
+                            syncing && { opacity: 0.6 },
+                            totalPending === 0 && { backgroundColor: "#6b7280" },
+                        ]}
                         onPress={handleSync}
                         disabled={syncing}
                     >
                         {syncing ? (
-                            <ActivityIndicator color="#fff" />
+                            <>
+                                <ActivityIndicator color="#fff" size="small" />
+                                <Text style={styles.syncBtnText}>সিঙ্ক হচ্ছে...</Text>
+                            </>
                         ) : (
                             <>
                                 <Ionicons name="sync-outline" size={20} color="#fff" />
-                                <Text style={styles.syncBtnText}>এখনই সিঙ্ক করুন</Text>
+                                <Text style={styles.syncBtnText}>
+                                    {totalPending > 0
+                                        ? `এখনই সিঙ্ক করুন (${totalPending})`
+                                        : "এখনই সিঙ্ক করুন"}
+                                </Text>
                             </>
                         )}
                     </TouchableOpacity>
@@ -198,7 +281,7 @@ export default function SyncSection() {
                         <View style={{ flex: 1 }}>
                             <Text style={styles.autoTitle}>অটো সিঙ্ক</Text>
                             <Text style={styles.autoSub}>
-                                প্রতি ৫ মিনিটে স্বয়ংক্রিয় সিঙ্ক
+                                প্রতি ৫ মিনিটে স্বয়ংক্রিয়
                             </Text>
                         </View>
                         <Switch
@@ -209,7 +292,6 @@ export default function SyncSection() {
                         />
                     </View>
 
-                    {/* Logout */}
                     <TouchableOpacity
                         style={styles.logoutBtn}
                         onPress={handleLogout}
@@ -233,7 +315,6 @@ const styles = StyleSheet.create({
         textTransform: "uppercase",
         letterSpacing: 0.5,
     },
-
     loadingBox: { padding: 30, alignItems: "center" },
 
     statusCard: {
@@ -255,6 +336,33 @@ const styles = StyleSheet.create({
     statusTitle: { fontSize: 14, fontWeight: "800" },
     statusSub: { fontSize: 11, color: "#6b7280", marginTop: 2 },
     lastSync: { fontSize: 10, color: "#9ca3af", marginTop: 2 },
+
+    pendingBox: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 6,
+        backgroundColor: "#fef3c7",
+        padding: 10,
+        borderRadius: 10,
+        marginBottom: 10,
+        borderWidth: 1,
+        borderColor: "#fde68a",
+    },
+    pendingText: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: "#92400e",
+        flex: 1,
+    },
+    pendingChips: { flexDirection: "row", gap: 4 },
+    chip: {
+        backgroundColor: "#fff",
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 6,
+    },
+    chipText: { fontSize: 10, color: "#92400e", fontWeight: "700" },
 
     loginBtn: {
         flexDirection: "row",

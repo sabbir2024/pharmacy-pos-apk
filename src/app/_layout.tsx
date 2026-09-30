@@ -1,18 +1,17 @@
-import { useAutoSync } from "@/hooks/useAutoSync";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { initDatabase } from "../db/database";
 
 export default function RootLayout() {
   useEffect(() => {
+    // ✅ একবারই DB init হবে
     initDatabase();
   }, []);
 
-  useAutoSync({ enabled: true, intervalMs: 5 * 60 * 1000 });
-
   return (
-    <>
+    <SafeAreaProvider>
       <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
@@ -23,7 +22,6 @@ export default function RootLayout() {
             presentation: "modal",
           }}
         />
-        {/* 🆕 Pending screen */}
         <Stack.Screen
           name="pending"
           options={{
@@ -32,6 +30,6 @@ export default function RootLayout() {
           }}
         />
       </Stack>
-    </>
+    </SafeAreaProvider>
   );
 }

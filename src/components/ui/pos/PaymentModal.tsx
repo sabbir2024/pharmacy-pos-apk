@@ -2,13 +2,17 @@ import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import {
     Alert,
+    KeyboardAvoidingView,
     Modal,
+    Platform,
+    ScrollView,
     StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
     View,
 } from "react-native";
+import { formatTk } from "../../../utils/format";
 
 type Props = {
     visible: boolean;
@@ -17,11 +21,15 @@ type Props = {
     onConfirm: (paid: number, method: "cash" | "card" | "bkash") => void;
 };
 
-const METHODS: { key: "cash" | "card" | "bkash"; label: string; icon: any }[] = [
-    { key: "cash", label: "ক্যাশ", icon: "cash-outline" },
-    { key: "card", label: "কার্ড", icon: "card-outline" },
-    { key: "bkash", label: "বিকাশ", icon: "phone-portrait-outline" },
-];
+const METHODS: {
+    key: "cash" | "card" | "bkash";
+    label: string;
+    icon: any;
+}[] = [
+        { key: "cash", label: "ক্যাশ", icon: "cash-outline" },
+        { key: "card", label: "কার্ড", icon: "card-outline" },
+        { key: "bkash", label: "বিকাশ", icon: "phone-portrait-outline" },
+    ];
 
 export default function PaymentModal({
     visible,
@@ -40,96 +48,117 @@ export default function PaymentModal({
             Alert.alert("ত্রুটি", "টাকার পরিমাণ দিন");
             return;
         }
-        // কম/বেশি যাই হোক — sales.tsx হ্যান্ডেল করবে
         onConfirm(paidNum, method);
         setPaid("");
         setMethod("cash");
     };
 
     return (
-        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-            <View style={styles.overlay}>
-                <View style={styles.container}>
-                    <View style={styles.header}>
-                        <Text style={styles.title}>পেমেন্ট</Text>
-                        <TouchableOpacity onPress={onClose}>
-                            <Ionicons name="close" size={24} color="#374151" />
-                        </TouchableOpacity>
-                    </View>
+        <Modal
+            visible={visible}
+            transparent
+            animationType="slide"
+            onRequestClose={onClose}
+            statusBarTranslucent
+        >
+            {/* ✅ KeyboardAvoidingView — পুরো screen wrap */}
+            <KeyboardAvoidingView
+                style={styles.overlay}
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                keyboardVerticalOffset={0}
+            >
+                <ScrollView
+                    contentContainerStyle={styles.scrollContent}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                >
+                    <View style={styles.container}>
+                        <View style={styles.header}>
+                            <Text style={styles.title}>পেমেন্ট</Text>
+                            <TouchableOpacity onPress={onClose}>
+                                <Ionicons name="close" size={24} color="#374151" />
+                            </TouchableOpacity>
+                        </View>
 
-                    <View style={styles.totalBox}>
-                        <Text style={styles.totalLabel}>মোট দিতে হবে</Text>
-                        <Text style={styles.totalValue}>৳ {total.toFixed(0)}</Text>
-                    </View>
+                        <View style={styles.totalBox}>
+                            <Text style={styles.totalLabel}>মোট দিতে হবে</Text>
+                            <Text style={styles.totalValue}>{formatTk(total)}</Text>
+                        </View>
 
-                    <Text style={styles.label}>পেমেন্ট মেথড</Text>
-                    <View style={styles.methodRow}>
-                        {METHODS.map((m) => (
-                            <TouchableOpacity
-                                key={m.key}
-                                style={[
-                                    styles.methodBtn,
-                                    method === m.key && styles.methodBtnActive,
-                                ]}
-                                onPress={() => setMethod(m.key)}
-                            >
-                                <Ionicons
-                                    name={m.icon}
-                                    size={20}
-                                    color={method === m.key ? "#fff" : "#0d9488"}
-                                />
+                        <Text style={styles.label}>পেমেন্ট মেথড</Text>
+                        <View style={styles.methodRow}>
+                            {METHODS.map((m) => (
+                                <TouchableOpacity
+                                    key={m.key}
+                                    style={[
+                                        styles.methodBtn,
+                                        method === m.key && styles.methodBtnActive,
+                                    ]}
+                                    onPress={() => setMethod(m.key)}
+                                >
+                                    <Ionicons
+                                        name={m.icon}
+                                        size={20}
+                                        color={method === m.key ? "#fff" : "#0d9488"}
+                                    />
+                                    <Text
+                                        style={[
+                                            styles.methodText,
+                                            method === m.key && { color: "#fff" },
+                                        ]}
+                                    >
+                                        {m.label}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+
+                        <Text style={styles.label}>পরিশোধিত (৳)</Text>
+                        <TextInput
+                            style={styles.input}
+                            value={paid}
+                            onChangeText={setPaid}
+                            keyboardType="numeric"
+                            placeholder={String(Math.round(total))}
+                            placeholderTextColor="#9ca3af"
+                            returnKeyType="done"
+                            onSubmitEditing={handleConfirm}
+                        />
+
+                        {paidNum > 0 && (
+                            <View style={styles.changeBox}>
+                                <Text style={styles.changeLabel}>
+                                    {change >= 0 ? "ফেরত" : "বাকি থাকবে"}
+                                </Text>
                                 <Text
                                     style={[
-                                        styles.methodText,
-                                        method === m.key && { color: "#fff" },
+                                        styles.changeValue,
+                                        { color: change >= 0 ? "#16a34a" : "#d97706" },
                                     ]}
                                 >
-                                    {m.label}
+                                    {formatTk(Math.abs(change))}
                                 </Text>
-                            </TouchableOpacity>
-                        ))}
+                            </View>
+                        )}
+
+                        <TouchableOpacity
+                            style={styles.confirmBtn}
+                            onPress={handleConfirm}
+                        >
+                            <Ionicons
+                                name={
+                                    paidNum >= total ? "checkmark-circle" : "people-outline"
+                                }
+                                size={22}
+                                color="#fff"
+                            />
+                            <Text style={styles.confirmText}>
+                                {paidNum >= total ? "বিল কনফার্ম" : "বাকি হিসেবে সেভ"}
+                            </Text>
+                        </TouchableOpacity>
                     </View>
-
-                    <Text style={styles.label}>পরিশোধিত (৳)</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={paid}
-                        onChangeText={setPaid}
-                        keyboardType="numeric"
-                        placeholder={`${total}`}
-                        placeholderTextColor="#9ca3af"
-                    />
-
-                    {/* ফেরত / বাকি */}
-                    {paidNum > 0 && (
-                        <View style={styles.changeBox}>
-                            <Text style={styles.changeLabel}>
-                                {change >= 0 ? "ফেরত" : "বাকি থাকবে"}
-                            </Text>
-                            <Text
-                                style={[
-                                    styles.changeValue,
-                                    { color: change >= 0 ? "#16a34a" : "#d97706" },
-                                ]}
-                            >
-                                ৳ {Math.abs(change).toFixed(0)}
-                            </Text>
-                        </View>
-                    )}
-
-                    {/* ডাইনামিক Confirm বাটন */}
-                    <TouchableOpacity style={styles.confirmBtn} onPress={handleConfirm}>
-                        <Ionicons
-                            name={paidNum >= total ? "checkmark-circle" : "people-outline"}
-                            size={22}
-                            color="#fff"
-                        />
-                        <Text style={styles.confirmText}>
-                            {paidNum >= total ? "বিল কনফার্ম" : "বাকি হিসেবে সেভ"}
-                        </Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
+                </ScrollView>
+            </KeyboardAvoidingView>
         </Modal>
     );
 }
@@ -140,11 +169,16 @@ const styles = StyleSheet.create({
         backgroundColor: "rgba(0,0,0,0.4)",
         justifyContent: "flex-end",
     },
+    scrollContent: {
+        flexGrow: 1,
+        justifyContent: "flex-end",
+    },
     container: {
         backgroundColor: "#fff",
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         padding: 20,
+        paddingBottom: 30,
     },
     header: {
         flexDirection: "row",
@@ -161,7 +195,12 @@ const styles = StyleSheet.create({
         alignItems: "center",
     },
     totalLabel: { fontSize: 12, color: "#0f766e" },
-    totalValue: { fontSize: 26, fontWeight: "800", color: "#0d9488", marginTop: 4 },
+    totalValue: {
+        fontSize: 26,
+        fontWeight: "800",
+        color: "#0d9488",
+        marginTop: 4,
+    },
     label: {
         fontSize: 13,
         color: "#374151",

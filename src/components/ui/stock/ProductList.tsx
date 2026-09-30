@@ -1,5 +1,5 @@
+import { Product } from "@/db/products";
 import { FlatList, StyleSheet } from "react-native";
-import type { Product } from "./AddProductModal";
 import EmptyState from "./EmptyState";
 import ProductCard from "./ProductCard";
 
